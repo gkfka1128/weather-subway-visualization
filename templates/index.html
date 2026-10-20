@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>데이터 시각화 대시보드</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header><h1>데이터 시각화 대시보드</h1></header>
+  <main class="grid">
+    {% for c in cards %}
+    <section class="card" id="{{ c.id }}">
+      <h2>{{ c.title }}</h2>
+      <div class="plot">{{ c.html | safe }}</div>
+      <p class="desc">{{ c.desc }}</p>
+    </section>
+    {% endfor %}
+  </main>
+</body>
+</html>
