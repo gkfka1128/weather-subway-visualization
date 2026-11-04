@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>지하철 붐빌까</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='service.css') }}">
+</head>
+<body>
+  <main>
+    <h1>지하철, 붐빌까?</h1>
+    {% if error %}
+      <p class="card warn">{{ error }}</p>
+    {% else %}
+    <nav class="tabs">
+      {% for t in tabs %}<a class="{{ 'on' if t.active }}" href="{{ t.url }}">{{ t.label }}</a>{% endfor %}
+    </nav>
+    <p class="date">{{ date_text }}</p>
+
+    <section class="card weather">
+      <div class="wicon">{{ banner.icon }}</div>
+      <div>
+        <div class="wmain">{{ banner.range }} · {{ banner.sky }}</div>
+        <div class="small">{{ banner.effect }}</div>
+      </div>
+    </section>
+
+    <form method="get" class="pick">
+      <input type="hidden" name="day" value="{{ sel_day }}">
+      <label>호선
+        <select name="line" onchange="this.form.submit()">
+          <option value="전체">전체</option>
+          {% for l in lines %}<option value="{{ l }}" {{ 'selected' if l == sel_line }}>{{ l }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>시간
+        <select name="hour" onchange="this.form.submit()">
+          {% for h in hours %}<option value="{{ h }}" {{ 'selected' if h == hour }}>{{ h }}시</option>{% endfor %}
+        </select>
+      </label>
+    </form>
+
+    <section class="card result {{ css }}">
+      <div class="small">{{ hour }}시 · {{ sel_line }}</div>
+      <div class="big">{{ level }}</div>
+      <div class="small">
+        기온 {{ '%.0f' % temp }}℃ · {{ sky }}<br>
+        평소보다 {{ '%+.1f' % vs_usual }}%
+      </div>
+    </section>
+
+    <p class="card tip">💡 {{ tip }}</p>
+
+    <section class="card">
+      <h2>시간대별 이용 수준</h2>
+      <div class="bars">
+        {% for b in bars %}
+        <a class="bar {{ b.css }} {{ 'cur' if b.current }}" href="{{ b.url }}" title="{{ b.hour }}시 {{ b.name }}">
+          <span style="height: {{ b.pct }}%"></span><i>{{ b.hour }}</i>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>{{ hour }}시, 호선별 비교 <small>(한산한 순)</small></h2>
+      <ul class="cmp">
+        {% for c in compare %}
+        <li class="{{ 'sel' if c.selected }}">
+          <a href="{{ c.url }}">
+            <span class="ln">{{ c.line }}</span>
+            <span class="track"><span class="fill {{ c.css }}" style="width: {{ c.pct }}%"></span></span>
+            <span class="lv {{ c.css }}">{{ c.pct }}%</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="small">100%는 그 호선이 그날 가장 붐비는 시간이에요. 출근·퇴근 피크에는 대부분 호선이 100%에 가깝고, 호선끼리 승객 수를 비교한 것은 아니에요.</p>
+    </section>
+
+    <p class="card small">📊 근거: 2025년 서울 지하철 승하차 데이터에서 {{ evidence[0].label }} <b>{{ evidence[0].value }}</b>,
+      {{ evidence[1].label }} <b>{{ evidence[1].value }}</b>. 날씨 영향은 방향은 일관되지만 크기는 작아서, 이 서비스의 수준 표시는 대부분 요일·시간대 패턴에서 나옵니다.</p>
+
+    <p class="note">승하차 인원 기준의 <b>이용량</b> 예측이며, 열차 안 혼잡도와는 다릅니다. 이용 수준은 그날 가장 많은 시간대 대비 비율입니다.
+      2025년 서울교통공사 데이터에 날씨 예보(Open-Meteo)를 반영한 추정치이고, 며칠 뒤 예보일수록 오차가 커집니다. 공휴일은 반영하지 못합니다.</p>
+    {% endif %}
+  </main>
+</body>
+</html>

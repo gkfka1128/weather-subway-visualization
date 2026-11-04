@@ -3,19 +3,67 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>데이터 시각화 대시보드</title>
+  <title>날씨와 서울 지하철</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <header><h1>데이터 시각화 대시보드</h1></header>
-  <main class="grid">
-    {% for c in cards %}
-    <section class="card" id="{{ c.id }}">
-      <h2>{{ c.title }}</h2>
-      <div class="plot">{{ c.html | safe }}</div>
-      <p class="desc">{{ c.desc }}</p>
+  <header>
+    <h1>날씨가 서울 지하철 이용량에 미치는 영향</h1>
+    <p class="sub">서울교통공사 1~8호선 2025년 승하차 데이터 × Open-Meteo 날씨</p>
+  </header>
+
+  <main>
+    <section class="stats">
+      {% for m in metrics %}<div class="stat"><b>{{ m.value }}</b><span>{{ m.label }}</span></div>{% endfor %}
     </section>
+
+    <section class="card today">
+      <h2>오늘의 지하철 이용량 예측</h2>
+      {% if pred %}
+        <p class="lead">{{ pred.sentence }}</p>
+        <div class="plot">{{ pred.html | safe }}</div>
+      {% else %}
+        <p class="lead warn">{{ error }}</p>
+      {% endif %}
+      <p class="desc">평소 이용량(같은 요일 유형·시간대의 무강수일 평균)에 오늘 예보의 강수·눈·기온 보정 계수를 곱한 추정치입니다. 호선 단위, 2025년 한 해 데이터 기준입니다.</p>
+    </section>
+
+    <form class="controls" method="get">
+      <label>호선
+        <select name="line" onchange="this.form.submit()">
+          <option value="전체">전체</option>
+          {% for l in lines %}<option value="{{ l }}" {{ 'selected' if l == sel_line }}>{{ l }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>요일 유형
+        <select name="day_type" onchange="this.form.submit()">
+          <option value="전체">전체</option>
+          {% for d in day_types %}<option value="{{ d }}" {{ 'selected' if d == sel_dtype }}>{{ d }}</option>{% endfor %}
+        </select>
+      </label>
+      <a class="btn" href="{{ url_for('index') }}">초기화</a>
+    </form>
+
+    {% for sec in sections %}
+    <h2 class="sec">{{ sec.title }}</h2>
+    <div class="grid">
+      {% for c in sec.cards %}
+      <section class="card{{ ' wide' if c.id in ('factors', 'backtest', 'scatter') }}" id="{{ c.id }}">
+        <h2>{{ c.title }}</h2>
+        <div class="plot">{{ c.html | safe }}</div>
+        <p class="desc">{{ c.desc }}</p>
+      </section>
+      {% endfor %}
+    </div>
     {% endfor %}
+
+    <section class="card conclusion">
+      <h2>결론</h2>
+      <p class="desc">날씨는 이용량을 <b>같은 방향으로 일관되게</b> 줄이지만(비·눈 오는 날 소폭 감소), 그 크기는 평소 변동보다 작습니다.
+        추위·더위의 영향처럼 보이던 부분은 대부분 계절·연휴 효과였고, 보정 후에는 ±2% 안팎입니다.
+        따라서 서비스는 "오늘은 평소보다 약 N% 차이"처럼 <b>상대적 수준</b>으로 안내하며, 열차 안 혼잡도가 아니라 승하차 인원 기준의 이용량임을 밝힙니다.
+        한계: 2025년 한 해만 사용, 비·눈 표본이 적음(강한 비 24시간대·눈 62시간대), 기상 예보 오차, 2026 공휴일은 수동 입력.</p>
+    </section>
   </main>
 </body>
 </html>
