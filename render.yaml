@@ -1,0 +1,15 @@
+# Render Blueprint — GitHub 저장소를 연결하면 두 사이트가 한 번에 배포된다 (무료 플랜, 512MB).
+# Render 대시보드 → New → Blueprint → 이 저장소 선택.
+services:
+  - type: web
+    name: subway-weather-dashboard   # 발표용 대시보드 (그래프 11개 + 백테스트)
+    runtime: docker
+    plan: free
+    healthCheckPath: /   # /api/predict는 외부 예보 API가 죽으면 500이라 쓰지 않는다
+
+  - type: web
+    name: subway-weather-service     # 사용자용 "오늘 지하철 붐빌까?" 사이트
+    runtime: docker
+    plan: free
+    dockerCommand: sh -c "exec gunicorn -b 0.0.0.0:${PORT:-8001} -w 2 --timeout 180 --chdir service serve:app"
+    healthCheckPath: /
