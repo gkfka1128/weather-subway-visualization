@@ -22,10 +22,13 @@ from matplotlib import font_manager as _fm
 _installed = {f.name for f in _fm.fontManager.ttflist}
 KFONT = next((f for f in ["Malgun Gothic", "NanumGothic", "AppleGothic"] if f in _installed), "DejaVu Sans")
 sns.set_theme(style="whitegrid", font=KFONT)  # set_theme이 font.family를 덮어쓰므로 rcParams는 그 뒤에
-plt.rcParams["axes.unicode_minus"] = False
+plt.rcParams.update({"axes.unicode_minus": False, "grid.color": "#ebe8e1", "axes.edgecolor": "#d8d4ca",
+                     "text.color": "#1b1b1a", "axes.labelcolor": "#55534e",
+                     "xtick.color": "#55534e", "ytick.color": "#55534e"})
 
 _lock = threading.Lock()  # pyplot은 전역 상태를 쓰므로 직렬화
-C_BLUE, C_ORANGE, C_GRAY, C_RED, C_GREEN = "#2563eb", "#ea580c", "#9ca3af", "#dc2626", "#16a34a"
+# 화면(style.css)과 맞춘 차분한 색: 비=남색, 눈=주황, 평소=회색
+C_BLUE, C_ORANGE, C_GRAY, C_RED, C_GREEN = "#2f5d8a", "#c8742b", "#a9a59b", "#b8432f", "#3d7a4f"
 WEATHER_LABELS = {"temp_c": "평균 기온", "precip_mm": "강수량 합", "snowfall_cm": "적설 합", "humidity": "평균 습도",
                   "wind_ms": "평균 풍속"}
 COMMUTE = [7, 8, 9, 17, 18, 19]

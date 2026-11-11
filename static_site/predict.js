@@ -113,19 +113,19 @@ function lineChart(rows) {  // 평소 vs 예측, 단위 천 명 (의존성 없�
   const step = ymax > 400 ? 100 : ymax > 100 ? 50 : ymax > 40 ? 10 : 5;
   let g = "";
   for (let v = 0; v <= ymax; v += step) {
-    g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e5e7eb"/>` +
+    g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#ebe8e1"/>` +
       `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
   }
   for (let x = 6; x <= 24; x += 3) g += `<text x="${X(x)}" y="${H - B + 16}" text-anchor="middle">${x}</text>`;
   const dots = k => pts.map(p => `<circle cx="${X(p.x)}" cy="${Y(p[k])}" r="2.5"/>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="오늘의 시간대별 이용량 예측" style="width:100%;height:auto;font-size:11px;fill:#4b5563">
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="오늘의 시간대별 이용량 예측" style="width:100%;height:auto;font-size:11px;fill:#55534e">
     ${g}
     <text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">시간 (24=자정 이후)</text>
     <text x="12" y="${(T + H - B) / 2}" transform="rotate(-90 12 ${(T + H - B) / 2})" text-anchor="middle">이용량 (천 명)</text>
-    <path d="${path("base")}" fill="none" stroke="#9ca3af" stroke-width="2"/><g fill="#9ca3af">${dots("base")}</g>
-    <path d="${path("pred")}" fill="none" stroke="#2563eb" stroke-width="2"/><g fill="#2563eb">${dots("pred")}</g>
-    <g transform="translate(${L + 8},14)"><rect width="12" height="3" y="-4" fill="#9ca3af"/><text x="16">평소 (같은 계절 무강수일 평균)</text>
-      <rect x="210" width="12" height="3" y="-4" fill="#2563eb"/><text x="226">날씨 반영 예측</text></g>
+    <path d="${path("base")}" fill="none" stroke="#a9a59b" stroke-width="2" stroke-dasharray="4 3"/>
+    <path d="${path("pred")}" fill="none" stroke="#0f6b5c" stroke-width="2.2"/><g fill="#0f6b5c">${dots("pred")}</g>
+    <g transform="translate(${L + 8},14)"><rect width="14" height="2" y="-4" fill="#a9a59b"/><text x="20">평소 (같은 계절 무강수일 평균)</text>
+      <rect x="214" width="14" height="2" y="-4" fill="#0f6b5c"/><text x="234">날씨 반영 예측</text></g>
   </svg>`;
 }
 
@@ -185,7 +185,7 @@ async function renderService() {
 
     const rain = p.rows.reduce((s, r) => s + r.rain, 0), snow = p.rows.reduce((s, r) => s + r.snow, 0);
     const temps = p.rows.map(r => r.temp);
-    const [icon, wsky] = snow > 0 ? ["❄️", `눈 ${snow.toFixed(1)}cm`] : rain > 0.1 ? ["☔", `비 ${rain.toFixed(1)}mm`] : ["🌡️", "강수 없음"];
+    const wsky = snow > 0 ? `눈 ${snow.toFixed(1)}cm` : rain > 0.1 ? `비 ${rain.toFixed(1)}mm` : "강수 없음";
     const effect = Math.abs(p.pct) < 1 ? "날씨 영향은 거의 없어요"
       : `평소보다 하루 이용량 약 ${Math.round(Math.abs(p.pct))}% ${p.pct < 0 ? "적을" : "많을"} 전망`;
     const ev = M.evidence;
@@ -194,20 +194,21 @@ async function renderService() {
     app.innerHTML = `
     <nav class="tabs">${tabs}</nav>
     <p class="date">${pad(p.day.m)}월 ${pad(p.day.d)}일 (${M.weekdays[p.day.wd]}, ${p.dtype})</p>
-    <section class="card weather"><div class="wicon">${icon}</div>
-      <div><div class="wmain">${Math.round(Math.min(...temps))}~${Math.round(Math.max(...temps))}℃ · ${wsky}</div>
-      <div class="small">${effect}</div></div></section>
+    <section class="card weather">
+      <div class="wmain">${Math.round(Math.min(...temps))}~${Math.round(Math.max(...temps))}℃ · ${wsky}</div>
+      <div class="small">${effect}</div></section>
     <form class="pick" onsubmit="return false">
       <label>호선 <select id="sel-line">${opt("전체", line)}${M.lines.map(l => opt(l, line)).join("")}</select></label>
       <label>시간 <select id="sel-hour">${hours.map(h => opt(h, hour, h + "시")).join("")}</select></label>
     </form>
     <section class="card result ${css}"><div class="small">${hour}시 · ${line}</div><div class="big">${level}</div>
+      <div class="meter" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       <div class="small">기온 ${Math.round(cur.temp)}℃ · ${sky}<br>평소보다 ${signed((cur.pred / cur.base - 1) * 100)}%</div></section>
-    <p class="card tip">💡 ${tip}</p>
+    <p class="card tip"><span class="lbl">추천</span>${tip}</p>
     <section class="card"><h2>시간대별 이용 수준</h2><div class="bars">${bars}</div></section>
     <section class="card"><h2>${hour}시, 호선별 비교 <small>(한산한 순)</small></h2><ul class="cmp">${cmp}</ul>
       <p class="small">100%는 그 호선이 그날 가장 붐비는 시간이에요. 출근·퇴근 피크에는 대부분 호선이 100%에 가깝고, 호선끼리 승객 수를 비교한 것은 아니에요.</p></section>
-    <p class="card small">📊 근거: 2025년 서울 지하철 승하차 데이터에서 ${ev[0].label} <b>${ev[0].value}</b>,
+    <p class="card small"><span class="lbl">근거</span>2025년 서울 지하철 승하차 데이터에서 ${ev[0].label} <b>${ev[0].value}</b>,
       ${ev[1].label} <b>${ev[1].value}</b>. 날씨 영향은 방향은 일관되지만 크기는 작아서, 이 서비스의 수준 표시는 대부분 요일·시간대 패턴에서 나옵니다.</p>`;
 
     document.getElementById("sel-line").onchange = e => { location.href = "today.html?" + new URLSearchParams({ line: e.target.value, day: offset, hour }); };
