@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>지하철 붐빌까</title>
+  <link rel="stylesheet" href="service.css">
+</head>
+<body>
+  <main>
+    <h1>지하철, 붐빌까?</h1>
+    <div id="app"><p class="card small">예보를 불러오는 중…</p></div>
+    <p class="note">승하차 인원 기준의 <b>이용량</b> 예측이며, 열차 안 혼잡도와는 다릅니다. 이용 수준은 그날 가장 많은 시간대 대비 비율입니다.
+      2025년 서울교통공사 데이터에 날씨 예보(Open-Meteo)를 반영한 추정치이고, 며칠 뒤 예보일수록 오차가 커집니다. 공휴일은 반영하지 못합니다.
+      <br><a href="index.html">분석 대시보드 보기 →</a></p>
+  </main>
+  <script src="predict.js"></script>
+  <script>renderService();</script>
+</body>
+</html>

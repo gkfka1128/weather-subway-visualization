@@ -204,6 +204,9 @@ def c_scatter(line, dtype):
 
 
 def c_rain_commute(line, dtype):
+    # 평일 출퇴근 전용 그래프: 주말 유형을 골라도 비우지 않고 그 호선의 평일 자료를 보여 준다.
+    weekend = dtype not in ("전체", "평일")
+    dtype = "평일"
     sub = _sub(line, dtype)
     t = sub.groupby(["date", "hour", "day_type"], as_index=False).agg(
         use=("use", "sum"), precip_mm=("precip_mm", "first"), snowfall_cm=("snowfall_cm", "first"))
@@ -221,6 +224,8 @@ def c_rain_commute(line, dtype):
         txt = f"출퇴근 6개 시간대 합계로 비 오는 날은 맑은 날보다 {diff * 100:+.1f}%입니다. "
     else:
         txt = ""
+    if weekend:
+        txt = "출퇴근 비교라 요일 유형 선택과 관계없이 평일 자료만 씁니다. " + txt
     desc = (txt + f"다만 단순 평균 비교라 계절이 섞여 있고, 비·눈이 온 날 수가 적습니다(비 {cnt.get('비', 0)}일, 눈 {cnt.get('눈', 0)}일). "
             "출퇴근은 날씨가 나빠도 가야 하므로 감소폭이 작습니다. 정밀한 비교는 아래 '날씨 구간별 영향' 그래프를 보세요.")
     return _out(fig, "html"), desc

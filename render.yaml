@@ -11,5 +11,5 @@ services:
     name: subway-weather-service     # 사용자용 "오늘 지하철 붐빌까?" 사이트
     runtime: docker
     plan: free
-    dockerCommand: sh -c "exec gunicorn -b 0.0.0.0:${PORT:-8001} -w 2 --timeout 180 --chdir service serve:app"
+    dockerCommand: sh -c "exec gunicorn -b 0.0.0.0:${PORT:-8001} -w 1 --threads 4 --timeout 180 --chdir service serve:app"
     healthCheckPath: /

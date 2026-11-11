@@ -46,6 +46,8 @@ def predict(line: str = "전체", offset: int = 0):
     out = fc[fc["date"] == f"{day:%Y-%m-%d}"].copy()
     out["base"] = out["hour"].map(usual_by_hour(line, dtype, f"{day:%m-%d}"))
     out = out.dropna(subset=["base"]).copy()
+    if out.empty:  # 예보가 그날을 아직/더 이상 포함하지 않으면 nan 문장 대신 오류로 처리
+        raise ValueError("예보 데이터 없음")
     out["factor"] = [weather_factor(a, b, c) for a, b, c in zip(out.temp_c, out.precip_mm, out.snowfall_cm)]
     out["pred"] = out["base"] * out["factor"]
     total_pct = (out["pred"].sum() / out["base"].sum() - 1) * 100
@@ -89,7 +91,10 @@ def api_predict():
     line = request.args.get("line", "전체")
     if line != "전체" and line not in LINES:
         line = "전체"
-    now, dtype, out, pct = predict(line)
+    try:
+        now, dtype, out, pct = predict(line)
+    except Exception as e:
+        return jsonify({"error": f"예보를 불러오지 못했습니다 ({type(e).__name__})"}), 503
     return jsonify({"date": f"{now:%Y-%m-%d}", "day_type": dtype, "line": line,
                     "change_pct": round(pct, 1), "message": summary_sentence(now, dtype, out, pct),
                     "hourly": [{"hour": int(r.hour), "expected": round(r.pred), "usual": round(r.base),

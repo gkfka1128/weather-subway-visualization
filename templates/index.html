@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>날씨와 서울 지하철</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ css_href or url_for('static', filename='style.css') }}">
 </head>
 <body>
   <header>
@@ -19,29 +19,33 @@
 
     <section class="card today">
       <h2>오늘의 지하철 이용량 예측</h2>
-      {% if pred %}
+      {% if static_site %}
+        <p class="lead" id="today-sentence">오늘 예보를 불러오는 중…</p>
+        <div class="plot" id="today-plot"></div>
+      {% elif pred %}
         <p class="lead">{{ pred.sentence }}</p>
         <div class="plot">{{ pred.html | safe }}</div>
       {% else %}
         <p class="lead warn">{{ error }}</p>
       {% endif %}
-      <p class="desc">평소 이용량(같은 요일 유형·시간대의 무강수일 평균)에 오늘 예보의 강수·눈·기온 보정 계수를 곱한 추정치입니다. 호선 단위, 2025년 한 해 데이터 기준입니다.</p>
+      <p class="desc">평소 이용량(같은 요일 유형·시간대의 무강수일 평균)에 오늘 예보의 강수·눈·기온 보정 계수를 곱한 추정치입니다. 호선 단위, 2025년 한 해 데이터 기준입니다.
+        {% if static_site %}<a href="today.html">시간대·호선별로 자세히 보기 →</a>{% endif %}</p>
     </section>
 
-    <form class="controls" method="get">
+    <form class="controls" method="get"{% if static_site %} onsubmit="return false"{% endif %}>
       <label>호선
-        <select name="line" onchange="this.form.submit()">
+        <select name="line" onchange="{{ 'goPage()' if static_site else 'this.form.submit()' }}">
           <option value="전체">전체</option>
           {% for l in lines %}<option value="{{ l }}" {{ 'selected' if l == sel_line }}>{{ l }}</option>{% endfor %}
         </select>
       </label>
       <label>요일 유형
-        <select name="day_type" onchange="this.form.submit()">
+        <select name="day_type" onchange="{{ 'goPage()' if static_site else 'this.form.submit()' }}">
           <option value="전체">전체</option>
           {% for d in day_types %}<option value="{{ d }}" {{ 'selected' if d == sel_dtype }}>{{ d }}</option>{% endfor %}
         </select>
       </label>
-      <a class="btn" href="{{ url_for('index') }}">초기화</a>
+      <a class="btn" href="{{ 'index.html' if static_site else url_for('index') }}">초기화</a>
     </form>
 
     {% for sec in sections %}
@@ -65,5 +69,16 @@
         한계: 2025년 한 해만 사용, 비·눈 표본이 적음(강한 비 24시간대·눈 62시간대), 기상 예보 오차, 2026 공휴일은 수동 입력.</p>
     </section>
   </main>
+  {% if static_site %}
+  <script>
+    const PAGES = {{ pages | tojson }};
+    function goPage() {
+      const f = document.querySelector("form.controls");
+      location.href = PAGES[f.line.value + "|" + f.day_type.value] || "index.html";
+    }
+  </script>
+  <script src="predict.js"></script>
+  <script>dashToday({{ sel_line | tojson }});</script>
+  {% endif %}
 </body>
 </html>
