@@ -16,9 +16,13 @@ import seaborn as sns
 from analysis import (DF, LINES, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAYS, backtest, group_stats,
                       make_t, t_for)
 
-plt.rcParams["font.family"] = ["Malgun Gothic", "NanumGothic", "AppleGothic", "DejaVu Sans"]
+from matplotlib import font_manager as _fm
+
+# Windows는 맑은 고딕, Docker(리눅스)는 나눔고딕 — 실제로 설치된 첫 한글 폰트를 쓴다.
+_installed = {f.name for f in _fm.fontManager.ttflist}
+KFONT = next((f for f in ["Malgun Gothic", "NanumGothic", "AppleGothic"] if f in _installed), "DejaVu Sans")
+sns.set_theme(style="whitegrid", font=KFONT)  # set_theme이 font.family를 덮어쓰므로 rcParams는 그 뒤에
 plt.rcParams["axes.unicode_minus"] = False
-sns.set_theme(style="whitegrid", font=plt.rcParams["font.family"][0])
 
 _lock = threading.Lock()  # pyplot은 전역 상태를 쓰므로 직렬화
 C_BLUE, C_ORANGE, C_GRAY, C_RED, C_GREEN = "#2563eb", "#ea580c", "#9ca3af", "#dc2626", "#16a34a"

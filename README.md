@@ -22,8 +22,14 @@ docker build -t subway-weather .
 docker run --rm -p 8000:8000 subway-weather   # 대시보드 http://localhost:8000
 ```
 
-서비스 사이트를 띄우려면 `docker run ... subway-weather gunicorn -b 0.0.0.0:8001 --chdir service serve:app`.
-(이 저장소를 만든 PC에는 Docker가 없어 빌드는 아직 검증하지 못했다.)
+서비스 사이트(사용자용):
+
+```bash
+docker run --rm -p 8001:8001 subway-weather gunicorn -b 0.0.0.0:8001 --chdir service serve:app   # http://localhost:8001
+```
+
+2026-11-11 Docker Desktop 29.9에서 빌드·실행 확인(대시보드·`/api/predict`·서비스 모두 200, 그래프 한글은 나눔고딕).
+첫 요청은 그래프를 만드느라 수십 초 걸릴 수 있다.
 
 ## 구조
 
