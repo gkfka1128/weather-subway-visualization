@@ -75,7 +75,11 @@ h2 small { font-weight:400; font-size:.78rem; }
 .cmp li + li { border-top:1px solid var(--rule); }
 .cmp li.sel { background:var(--off); }
 .cmp a { display:flex; align-items:center; gap:10px; padding:8px 6px; text-decoration:none; color:var(--ink); }
-.ln { width:3.4em; font-size:.88rem; font-weight:600; }
+.ln { width:4.6em; font-size:.88rem; font-weight:600; display:flex; align-items:center; gap:5px; }
+.lnb { display:inline-grid; place-items:center; width:1.55em; height:1.55em; border-radius:50%; color:#fff;
+       font-size:.78rem; font-weight:800; line-height:1; }
+.l1 { background:#0052a4; } .l2 { background:#00a84d; } .l3 { background:#ef7c1c; } .l4 { background:#00a5de; }
+.l5 { background:#996cac; } .l6 { background:#cd7c2f; } .l7 { background:#747f00; } .l8 { background:#e6186c; }
 .track { flex:1; height:6px; background:var(--off); overflow:hidden; }
 .fill { display:block; height:100%; }
 .fill.lv1 { background:var(--lv1); } .fill.lv2 { background:var(--lv2); }

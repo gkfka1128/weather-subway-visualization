@@ -75,6 +75,7 @@ def main():
     print("dashboards")
     build_dashboards()
     shutil.copy(ROOT / "static" / "style.css", OUT / "style.css")
+    shutil.copy(ROOT / "static" / "icons.svg", OUT / "icons.svg")
     shutil.copy(ROOT / "service" / "static" / "service.css", OUT / "service.css")
     for f in SRC.iterdir():
         shutil.copy(f, OUT / f.name)

@@ -4,7 +4,7 @@
 
 const KST = "Asia/Seoul";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780" +
-  "&forecast_days=7&hourly=temperature_2m,precipitation,snowfall&timezone=Asia%2FSeoul";
+  "&forecast_days=7&hourly=temperature_2m,precipitation,snowfall,cloud_cover&timezone=Asia%2FSeoul";
 const LEVELS = [[0.75, "매우 많음", "lv4"], [0.5, "많음", "lv3"], [0.3, "보통", "lv2"], [0, "한산", "lv1"]];
 
 // ---------- 데이터 ----------
@@ -16,7 +16,7 @@ async function loadModel() {
 
 async function loadForecast() {
   try {  // 30분 캐시 (저장소가 막혀 있어도 동작)
-    const c = JSON.parse(sessionStorage.getItem("fc") || "null");
+    const c = JSON.parse(sessionStorage.getItem("fc2") || "null");
     if (c && Date.now() - c.at < 1800e3) return c.rows;
   } catch (e) { /* 무시 */ }
   const r = await fetch(FORECAST_URL);
@@ -24,9 +24,9 @@ async function loadForecast() {
   const h = (await r.json()).hourly;
   const rows = h.time.map((t, i) => ({
     date: t.slice(0, 10), hour: +t.slice(11, 13),
-    temp: h.temperature_2m[i], rain: h.precipitation[i], snow: h.snowfall[i],
+    temp: h.temperature_2m[i], rain: h.precipitation[i], snow: h.snowfall[i], cloud: h.cloud_cover[i],
   }));
-  try { sessionStorage.setItem("fc", JSON.stringify({ at: Date.now(), rows })); } catch (e) { /* 무시 */ }
+  try { sessionStorage.setItem("fc2", JSON.stringify({ at: Date.now(), rows })); } catch (e) { /* 무시 */ }
   return rows;
 }
 
@@ -81,6 +81,9 @@ const hourKey = h => (h < 5 ? h + 24 : h);  // 0시(자정 이후)는 맨 뒤로
 const signed = v => (v >= 0 ? "+" : "") + v.toFixed(1);
 const levelOf = ratio => LEVELS.find(([th]) => ratio >= th);
 const pad = n => String(n).padStart(2, "0");
+// app.py의 sky_icon과 같은 규칙: 강수가 없으면 구름량으로 맑음/구름 조금/흐림
+const skyIcon = (rain, snow, cloud) => snow > 0 ? "snow" : rain > 0.1 ? "rain" : cloud < 30 ? "sun" : cloud < 70 ? "partly" : "cloud";
+const ico = (name, cls = "") => `<svg class="ico ${name} ${cls}" aria-hidden="true"><use href="icons.svg#${name}"/></svg>`;
 
 // ---------- 대시보드의 '오늘 예측' 카드 ----------
 async function dashToday(line) {
@@ -98,6 +101,26 @@ async function dashToday(line) {
       `${Math.round(Math.min(...temps))}~${Math.round(Math.max(...temps))}℃, ${sky}입니다. ` +
       `그래서 지하철 이용량은 평소 ${p.dtype}보다 ${word} 것으로 예측됩니다${mag}.`;
     document.getElementById("today-plot").innerHTML = lineChart(p.rows);
+
+    // 날씨 카드 + 3시간 간격 날씨 띠 (app.py today_panel과 같은 내용)
+    const cloud = p.rows.reduce((s, r) => s + r.cloud, 0) / p.rows.length;
+    const wsky = snow > 0 ? `눈 ${snow.toFixed(1)}cm` : rain > 0.1 ? `비 ${rain.toFixed(1)}mm` : "강수 없음";
+    const hrs = [6, 9, 12, 15, 18, 21].map(h => p.rows.find(r => r.hour === h)).filter(Boolean)
+      .map(r => `<li><span>${r.hour}시</span>${ico(skyIcon(r.rain, r.snow, r.cloud))}<b>${Math.round(r.temp)}°</b><i>${r.snow > 0 ? r.snow.toFixed(1) + "cm" : r.rain > 0.1 ? r.rain.toFixed(1) + "mm" : "–"}</i></li>`).join("");
+    document.getElementById("today-wx").innerHTML =
+      `<div class="wx-now">${ico(skyIcon(rain, snow, cloud), "big")}<div>` +
+      `<div class="wx-temp">${Math.round(Math.min(...temps))}~${Math.round(Math.max(...temps))}℃</div>` +
+      `<div class="wx-sky">${wsky} · 날씨 보정 ${signed(p.pct)}%</div></div></div><p class="wx-hint">3시간 간격 예보 · 기온 / 강수량</p><ol class="wx-hours">${hrs}</ol>`;
+
+    // 호선별 예상 하루 이용량
+    const ls = M.lines.map(ln => {
+      const q = predict(M, fc, ln, 0);
+      return { no: ln.replace("호선", ""), total: q.rows.reduce((s, r) => s + r.pred, 0) / 1e4, pct: q.pct };
+    });
+    const top = Math.max(...ls.map(r => r.total));
+    document.getElementById("today-lines").innerHTML = ls.map(r =>
+      `<li><span class="lnb l${r.no}">${r.no}</span><span class="lbar"><i class="l${r.no}" style="width:${Math.round(r.total / top * 100)}%"></i></span>` +
+      `<b>${Math.round(r.total)}만 명</b><small>${signed(r.pct)}%</small></li>`).join("");
   } catch (e) {
     box.textContent = `오늘 예보를 불러오지 못했습니다 (${e.message}).`;
     box.classList.add("warn");
@@ -122,8 +145,9 @@ function lineChart(rows) {  // 평소 vs 예측, 단위 천 명 (의존성 없�
     ${g}
     <text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">시간 (24=자정 이후)</text>
     <text x="12" y="${(T + H - B) / 2}" transform="rotate(-90 12 ${(T + H - B) / 2})" text-anchor="middle">이용량 (천 명)</text>
+    <path d="${path("pred")}L${X(pts[pts.length - 1].x).toFixed(1)},${Y(0)}L${X(pts[0].x).toFixed(1)},${Y(0)}Z" fill="#0f6b5c" fill-opacity=".14" stroke="none"/>
+    <path d="${path("pred")}" fill="none" stroke="#0f6b5c" stroke-width="2.2"/>
     <path d="${path("base")}" fill="none" stroke="#a9a59b" stroke-width="2" stroke-dasharray="4 3"/>
-    <path d="${path("pred")}" fill="none" stroke="#0f6b5c" stroke-width="2.2"/><g fill="#0f6b5c">${dots("pred")}</g>
     <g transform="translate(${L + 8},14)"><rect width="14" height="2" y="-4" fill="#a9a59b"/><text x="20">평소 (같은 계절 무강수일 평균)</text>
       <rect x="214" width="14" height="2" y="-4" fill="#0f6b5c"/><text x="234">날씨 반영 예측</text></g>
   </svg>`;
@@ -180,7 +204,7 @@ async function renderService() {
       return { ln, pct: Math.round(ratio * 100), lv, c };
     }).filter(Boolean).sort((a, b) => a.pct - b.pct).map(c =>
       `<li class="${c.ln === line ? "sel" : ""}"><a href="today.html?${new URLSearchParams({ line: c.ln, day: offset, hour })}">` +
-      `<span class="ln">${c.ln}</span><span class="track"><span class="fill ${c.c}" style="width: ${c.pct}%"></span></span>` +
+      `<span class="ln"><span class="lnb l${c.ln.replace("호선", "")}">${c.ln.replace("호선", "")}</span>호선</span><span class="track"><span class="fill ${c.c}" style="width: ${c.pct}%"></span></span>` +
       `<span class="lv ${c.c}">${c.pct}%</span></a></li>`).join("");
 
     const rain = p.rows.reduce((s, r) => s + r.rain, 0), snow = p.rows.reduce((s, r) => s + r.snow, 0);

@@ -67,7 +67,7 @@
         {% for c in compare %}
         <li class="{{ 'sel' if c.selected }}">
           <a href="{{ c.url }}">
-            <span class="ln">{{ c.line }}</span>
+            <span class="ln"><span class="lnb l{{ c.line[:-2] }}">{{ c.line[:-2] }}</span>호선</span>
             <span class="track"><span class="fill {{ c.css }}" style="width: {{ c.pct }}%"></span></span>
             <span class="lv {{ c.css }}">{{ c.pct }}%</span>
           </a>

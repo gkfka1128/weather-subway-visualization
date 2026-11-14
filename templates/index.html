@@ -15,32 +15,73 @@
   </header>
 
   <main>
-    <section class="stats">
-      {% for m in metrics %}<div class="stat"><b>{{ m.value }}</b><span>{{ m.label }}</span></div>{% endfor %}
+    {% set ICONS = 'icons.svg' if static_site else url_for('static', filename='icons.svg') %}
+    {% macro ico(name, cls='') %}<svg class="ico {{ name }} {{ cls }}" aria-hidden="true"><use href="{{ ICONS }}#{{ name }}"/></svg>{% endmacro %}
+
+    <section class="overview" aria-labelledby="ov-title">
+      <div class="ov-head">
+        <h2 id="ov-title">전체 데이터 요약</h2>
+        <p>2025년 1년 · 1~8호선 전체 · 평소(같은 시기 무강수일) 대비. <b>아래에서 호선·요일을 바꿔도 이 숫자는 그대로입니다.</b></p>
+      </div>
+      <div class="stats">
+        {% for m in metrics %}
+        <div class="stat t-{{ m.tone }}">{{ ico(m.icon) }}<b>{{ m.value }}</b><span>{{ m.label }}</span></div>
+        {% endfor %}
+      </div>
     </section>
 
-    <section class="card today">
-      <h2>오늘의 지하철 이용량 예측</h2>
-      {% if static_site %}
-        <p class="lead" id="today-sentence">오늘 예보를 불러오는 중…</p>
-        <div class="plot" id="today-plot"></div>
-      {% elif pred %}
-        <p class="lead">{{ pred.sentence }}</p>
-        <div class="plot">{{ pred.html | safe }}</div>
-      {% else %}
-        <p class="lead warn">{{ error }}</p>
-      {% endif %}
+    <section class="today">
+      <div class="today-head">
+        <h2>오늘의 지하철 이용량 예측</h2>
+        <span class="scope">{{ '전체 호선' if sel_line == '전체' else sel_line }} · 오늘 서울 예보 반영</span>
+      </div>
+      <div class="today-grid">
+        <div class="wx" id="today-wx">
+          {% if pred %}
+          <div class="wx-now">{{ ico(pred.wx.icon, 'big') }}
+            <div><div class="wx-temp">{{ pred.wx.range }}</div>
+              <div class="wx-sky">{{ pred.wx.sky }} · 날씨 보정 {{ '%+.1f' % pred.wx.pct }}%</div></div></div>
+          <p class="wx-hint">3시간 간격 예보 · 기온 / 강수량</p>
+          <ol class="wx-hours">
+            {% for h in pred.wx.hours %}<li><span>{{ h.hour }}시</span>{{ ico(h.icon) }}<b>{{ h.temp }}°</b><i>{{ h.amt }}</i></li>{% endfor %}
+          </ol>
+          {% elif static_site %}<p class="wx-load">예보를 불러오는 중…</p>{% endif %}
+        </div>
+        <div class="today-main">
+          {% if static_site %}
+            <p class="lead" id="today-sentence">오늘 예보를 불러오는 중…</p>
+            <div class="plot" id="today-plot"></div>
+          {% elif pred %}
+            <p class="lead">{{ pred.sentence }}</p>
+            <div class="plot">{{ pred.html | safe }}</div>
+          {% else %}
+            <p class="lead warn">{{ error }}</p>
+          {% endif %}
+        </div>
+      </div>
+      <div class="lines-today">
+        <h3>오늘 호선별 예상 이용량 <small>(하루 승하차 합계)</small></h3>
+        <ul id="today-lines">
+          {% if pred %}{% for r in pred.lines %}
+          <li><span class="lnb l{{ r.no }}">{{ r.no }}</span><span class="lbar"><i class="l{{ r.no }}" style="width:{{ r.w }}%"></i></span>
+            <b>{{ '%.0f' % r.total }}만 명</b><small>{{ '%+.1f' % r.pct }}%</small></li>
+          {% endfor %}{% endif %}
+        </ul>
+      </div>
       <p class="desc">평소 이용량(같은 요일 유형·시간대의 무강수일 평균)에 오늘 예보의 강수·눈·기온 보정 계수를 곱한 추정치입니다. 호선 단위, 2025년 한 해 데이터 기준입니다.
         {% if static_site %}<a href="today.html">시간대·호선별로 자세히 보기 →</a>{% endif %}</p>
     </section>
 
     <form class="controls" method="get"{% if static_site %} onsubmit="return false"{% endif %}>
-      <label>호선
-        <select name="line" onchange="{{ 'goPage()' if static_site else 'this.form.submit()' }}">
-          <option value="전체">전체</option>
-          {% for l in lines %}<option value="{{ l }}" {{ 'selected' if l == sel_line }}>{{ l }}</option>{% endfor %}
-        </select>
-      </label>
+      <p class="ctl-note">아래 그래프 범위</p>
+      <input type="hidden" name="line" value="{{ sel_line }}">
+      <nav class="chips" aria-label="호선 선택">
+        {% for l in ['전체'] + lines %}
+        {% set href = pages[l ~ '|' ~ sel_dtype] if static_site else url_for('index', line=l, day_type=sel_dtype) %}
+        <a class="chip{{ ' on' if l == sel_line }}" href="{{ href }}"{% if l == sel_line %} aria-current="page"{% endif %}>
+          {% if l == '전체' %}전체{% else %}<span class="lnb l{{ l[:-2] }}">{{ l[:-2] }}</span>호선{% endif %}</a>
+        {% endfor %}
+      </nav>
       <label>요일 유형
         <select name="day_type" onchange="{{ 'goPage()' if static_site else 'this.form.submit()' }}">
           <option value="전체">전체</option>

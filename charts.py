@@ -17,6 +17,7 @@ from analysis import (DF, LINES, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAY
                       make_t, t_for)
 
 from matplotlib import font_manager as _fm
+from matplotlib.colors import to_rgba
 
 # Windows는 맑은 고딕, Docker(리눅스)는 나눔고딕 — 실제로 설치된 첫 한글 폰트를 쓴다.
 _installed = {f.name for f in _fm.fontManager.ttflist}
@@ -29,6 +30,9 @@ plt.rcParams.update({"axes.unicode_minus": False, "grid.color": "#ebe8e1", "axes
 _lock = threading.Lock()  # pyplot은 전역 상태를 쓰므로 직렬화
 # 화면(style.css)과 맞춘 차분한 색: 비=남색, 눈=주황, 평소=회색
 C_BLUE, C_ORANGE, C_GRAY, C_RED, C_GREEN = "#2f5d8a", "#c8742b", "#a9a59b", "#b8432f", "#3d7a4f"
+# 서울 지하철 노선 고유색 (style.css의 --l1~--l8과 같은 값)
+LINE_COLORS = {"1호선": "#0052a4", "2호선": "#00a84d", "3호선": "#ef7c1c", "4호선": "#00a5de",
+               "5호선": "#996cac", "6호선": "#cd7c2f", "7호선": "#747f00", "8호선": "#e6186c"}
 WEATHER_LABELS = {"temp_c": "평균 기온", "precip_mm": "강수량 합", "snowfall_cm": "적설 합", "humidity": "평균 습도",
                   "wind_ms": "평균 풍속"}
 COMMUTE = [7, 8, 9, 17, 18, 19]
@@ -89,8 +93,9 @@ def forecast_html(out) -> str:
     with _lock:
         out = out.assign(x=_hour_x(out["hour"])).sort_values("x")
         fig, ax = plt.subplots(figsize=(7, 3.8))
-        ax.plot(out["x"], out["base"] / 1000, marker="o", color=C_GRAY, label="평소 (같은 계절 무강수일 평균)")
-        ax.plot(out["x"], out["pred"] / 1000, marker="o", color=C_BLUE, label="오늘 예측")
+        ax.plot(out["x"], out["base"] / 1000, color=C_GRAY, ls="--", label="평소 (같은 계절 무강수일 평균)")
+        ax.plot(out["x"], out["pred"] / 1000, color="#0f6b5c", lw=2.2, label="날씨 반영 예측")
+        ax.fill_between(out["x"], out["pred"] / 1000, color="#0f6b5c", alpha=.15)
         ax.set(title="오늘의 시간대별 이용량 예측", xlabel="시간 (24=자정 이후)", ylabel="이용량 (천 명)")
         ax.legend()
         return _out(fig, "html")
@@ -119,14 +124,15 @@ def c_lines(line, dtype):
     n = sub["date"].nunique()
     s = (sub.groupby("line")["use"].sum() / n / 10000).reindex(LINES)
     fig, ax = plt.subplots(figsize=(7, 3.6))
-    ax.bar(range(len(s)), s.to_numpy(), color=[C_ORANGE if l == line else C_BLUE for l in s.index])
+    ax.bar(range(len(s)), s.to_numpy(),
+           color=[to_rgba(LINE_COLORS[l], 1 if line in ("전체", l) else .3) for l in s.index])
     ax.set_xticks(range(len(s)))
     ax.set_xticklabels(list(s.index))
     ax.set(title=f"호선별 하루 평균 이용량 ({dtype})", xlabel="호선", ylabel="하루 평균 이용량 (만 명)")
     top, low = s.idxmax(), s.idxmin()
     desc = (f"{top}이 하루 평균 {s.max():,.0f}만 명으로 가장 많고 {low}이 {s.min():,.0f}만 명으로 가장 적습니다"
             f"(1일 이용량 = 승차+하차). 호선별 규모 차이가 커서, 날씨 영향도 '비율'로 비교해야 공정합니다. "
-            "선택한 호선은 주황색으로 표시됩니다.")
+            "막대 색은 각 호선의 고유색이고, 호선을 고르면 그 호선만 진하게 표시됩니다.")
     return _out(fig, "html"), desc
 
 
@@ -380,10 +386,10 @@ def headline():
     r = max((d["ratio"].corr(d[c]) for c in WEATHER_LABELS), key=abs)
     _, m, _, _ = backtest()
     return [
-        {"value": _pct(rain), "label": "비 오는 날 이용량 (평소 대비)"},
-        {"value": _pct(snow), "label": "눈 오는 날"},
-        {"value": f"{_pct(cold)} / {_pct(hot)}", "label": "한파(0℃↓) / 폭염(28℃↑)"},
-        {"value": f"|r| ≤ {abs(r):.2f}", "label": "날씨-이용량 하루 단위 상관계수"},
+        {"value": _pct(rain), "label": "비 오는 날 이용량", "icon": "rain", "tone": "rain"},
+        {"value": _pct(snow), "label": "눈 오는 날 이용량", "icon": "snow", "tone": "snow"},
+        {"value": f"{_pct(cold)} / {_pct(hot)}", "label": "한파(0℃↓) / 폭염(28℃↑)", "icon": "thermo", "tone": "temp"},
+        {"value": f"|r| ≤ {abs(r):.2f}", "label": "날씨와 하루 이용량의 상관계수", "icon": "scatter", "tone": "corr"},
     ]
 
 
