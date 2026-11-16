@@ -1,4 +1,4 @@
-"""대시보드 그래프 11개 + 오늘 예측 그래프. 설명 문장의 숫자는 그때그때 데이터에서 계산한다."""
+"""대시보드 그래프 14개 + 오늘 예측 그래프. 설명 문장의 숫자는 그때그때 데이터에서 계산한다."""
 import base64
 import io
 import threading
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from analysis import (DF, LINES, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAYS, backtest, group_stats,
+from analysis import (_HOUR_WEATHER, DF, LINES, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAYS, backtest, group_stats,
                       make_t, t_for)
 
 from matplotlib import font_manager as _fm
@@ -110,6 +110,7 @@ def c_heat(line, dtype):
     fig, ax = plt.subplots(figsize=(8, 3.6))
     sns.heatmap(pv / 1000, cmap="YlOrRd", ax=ax, cbar_kws={"label": "시간당 평균 이용량 (천 명)"})
     ax.set(title=f"요일×시간대 이용량 ({_scope(line, dtype)})", xlabel="시간", ylabel="요일")
+    ax.tick_params(axis="y", rotation=0)
     flat = pv.stack()
     (dy, dh), top = flat.idxmax(), flat.max()
     wk = pv.loc[["월", "화", "수", "목", "금"]].mean().max() if set("월화수목금") <= set(pv.index) else np.nan
@@ -346,6 +347,106 @@ def c_backtest():
     return _out(fig, "png"), desc
 
 
+# ---------- 날씨 개요 (B 담당 그래프) ----------
+def _wx_daily() -> pd.DataFrame:
+    w = _HOUR_WEATHER
+    g = w.groupby("date")
+    d = pd.DataFrame({"temp": g["temp_c"].mean(), "tmax": g["temp_c"].max(), "tmin": g["temp_c"].min(),
+                      "precip": g["precip_mm"].sum(), "snow": g["snowfall_cm"].sum()})
+    d.index = pd.to_datetime(d.index)
+    return d
+
+
+def c_weather_month():
+    d = _wx_daily()
+    m = d.groupby(d.index.month).agg(temp=("temp", "mean"), tmax=("tmax", "mean"), tmin=("tmin", "mean"),
+                                    precip=("precip", "sum"), wet=("precip", lambda x: int((x > 0.1).sum())))
+    fig, ax = plt.subplots(figsize=(7, 3.8))
+    ax2 = ax.twinx()
+    ax2.bar(m.index, m["precip"], color=C_BLUE, alpha=.28, width=.6, label="월 강수량 (mm)")
+    ax2.set_ylabel("월 강수량 (mm)")
+    ax2.grid(False)
+    ax.fill_between(m.index, m["tmin"], m["tmax"], color=C_ORANGE, alpha=.15, label="일 최저~최고 평균")
+    ax.plot(m.index, m["temp"], color=C_ORANGE, marker="o", lw=2, label="월 평균 기온 (℃)")
+    ax.axhline(0, color=C_GRAY, lw=.8)
+    ax.set_zorder(ax2.get_zorder() + 1)
+    ax.patch.set_visible(False)
+    ax.set(title="2025년 서울 월별 기온과 강수량", xlabel="월", ylabel="기온 (℃)", xticks=range(1, 13))
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8)
+    wet_m, cold_m, hot_m = m["precip"].idxmax(), m["temp"].idxmin(), m["temp"].idxmax()
+    share = m.loc[[6, 7, 8], "precip"].sum() / m["precip"].sum()
+    desc = (f"선은 월 평균 기온, 띠는 하루 최저~최고 기온의 평균, 막대는 월 강수량입니다. "
+            f"가장 추운 달은 {cold_m}월({m.loc[cold_m, 'temp']:.1f}℃), 가장 더운 달은 {hot_m}월({m.loc[hot_m, 'temp']:.1f}℃)이고, "
+            f"비는 {wet_m}월({m.loc[wet_m, 'precip']:,.0f}mm)에 가장 많이 왔으며 6~8월이 한 해 강수량의 {share:.0%}를 차지합니다. "
+            "비 오는 날이 여름에 몰려 있어서, 그냥 비교하면 '비 효과'에 '여름 효과'가 섞입니다. "
+            "그래서 이 대시보드는 같은 시기의 맑은 날과 비교하는 기준선을 씁니다.")
+    return _out(fig, "png"), desc
+
+
+def c_temp_hist():
+    t = _HOUR_WEATHER["temp_c"].dropna()
+    fig, ax = plt.subplots(figsize=(7, 3.8))
+    sns.histplot(t, bins=np.arange(np.floor(t.min()), t.max() + 1.5, 1.5), kde=True, ax=ax,
+                 color=C_ORANGE, edgecolor="white", alpha=.55, line_kws={"lw": 2})
+    for x, lab in ((0, "한파 기준 0℃"), (28, "폭염 기준 28℃")):
+        ax.axvline(x, color=C_RED if x else C_BLUE, ls="--", lw=1.2)
+        ax.text(x, ax.get_ylim()[1] * .95, f" {lab}", color=C_RED if x else C_BLUE, fontsize=8, va="top")
+    ax.set(title="2025년 서울 시간별 기온 분포", xlabel="기온 (℃)", ylabel="시간 수")
+    cold, hot = (t <= 0).mean(), (t > 28).mean()
+    desc = (f"지하철 운행 시간대 {len(t):,}개 시간의 기온을 1.5℃ 간격으로 센 히스토그램이고, 곡선은 분포를 부드럽게 그린 KDE입니다. "
+            f"평균 {t.mean():.1f}℃, 가장 낮은 {t.min():.1f}℃부터 가장 높은 {t.max():.1f}℃까지 퍼져 있습니다. "
+            f"0℃ 이하는 전체 시간의 {cold:.1%}, 28℃ 초과는 {hot:.1%}입니다. "
+            "분포가 영하부터 30℃대까지 넓게 퍼져 있어서, 기온은 평균 하나보다 구간(한파·보통·폭염)으로 나눠 영향을 보는 것이 맞습니다.")
+    return _out(fig, "png"), desc
+
+
+def _box_verdict(med, iqr, order) -> str:
+    """상자그림 설명의 결론 문장: 날씨별 중앙값 차이를 맑은 날 상자 폭과 실제로 비교해서 고른다."""
+    base = order[0]
+    if base not in med.index or not np.isfinite(iqr.get(base, np.nan)):
+        return "맑은 날 표본이 부족해 날마다 흔들림과 비교하기 어렵습니다."
+    gap = max((abs(med[k] - med[base]) for k in order[1:] if k in med.index), default=0.0)
+    w = iqr[base]
+    if gap <= w:
+        return (f"맑은 날끼리도 상자 폭이 {w:.1f}%p인데 날씨별 중앙값 차이는 가장 커도 {gap:.1f}%p라서, "
+                "날씨 때문에 생기는 차이가 평소 날마다 흔들림보다 작다는 것을 보여 줍니다.")
+    return (f"날씨별 중앙값 차이가 가장 큰 경우 {gap:.1f}%p로 맑은 날 상자 폭({w:.1f}%p)보다 커서, "
+            "이 범위에서는 날씨 효과가 날마다 흔들림을 넘어섭니다.")
+
+
+def c_weather_box(line, dtype):
+    d = _daily(t_for(line, dtype))
+    order = ["맑음 (강수 0)", "약한 비 (<10mm)", "많은 비 (10mm↑)", "눈"]
+    kind = np.select([d["snowfall_cm"] > 0, d["precip_mm"] >= 10, d["precip_mm"] > 0.1],
+                     [order[3], order[2], order[1]], order[0])
+    d = d.assign(kind=pd.Categorical(kind, order), pct=(d["ratio"] - 1) * 100)
+    pal = [C_GRAY, "#7fa3c6", C_BLUE, "#7a5fb5"]
+    fig, ax = plt.subplots(figsize=(7, 3.8))
+    sns.boxplot(data=d, x="kind", y="pct", hue="kind", order=order, palette=pal, legend=False, ax=ax,
+                width=.55, fliersize=3, linewidth=1)
+    ax.axhline(0, color=C_GRAY, ls="--", lw=1)
+    # 명절·연휴 앞뒤처럼 ±30%가 넘는 날 몇 개 때문에 상자가 납작해지지 않게 축을 1~99% 범위로 자른다
+    lo, hi = d["pct"].quantile([.01, .99])
+    pad = (hi - lo) * .15
+    ax.set_ylim(lo - pad, hi + pad)
+    cut = int(((d["pct"] < lo - pad) | (d["pct"] > hi + pad)).sum())
+    n = d["kind"].value_counts()
+    ax.set_xticks(range(len(order)))
+    ax.set_xticklabels([f"{k}\n{n.get(k, 0)}일" for k in order])
+    ax.set(title=f"날씨 유형별 하루 이용량 (평소 대비, {_scope(line, dtype)})", xlabel="", ylabel="평소 대비 (%)")
+    med = d.groupby("kind", observed=True)["pct"].median()
+    iqr = d.groupby("kind", observed=True)["pct"].quantile(.75) - d.groupby("kind", observed=True)["pct"].quantile(.25)
+    short = dict(zip(order, ["맑음", "약한 비", "많은 비", "눈"]))
+    parts = ", ".join(f"{short[k]} {med[k]:+.1f}%({n.get(k, 0)}일)" for k in order if k in med.index)
+    desc = (f"하루 이용량을 같은 시기 맑은 날 기준선과 비교한 값(%)의 상자그림입니다. 상자는 가운데 50%, 가운데 선은 중앙값입니다. "
+            f"중앙값은 {parts}입니다. "
+            + _box_verdict(med, iqr, order) + " 눈·많은 비는 날짜 수가 적어 해석에 주의해야 합니다."
+            + (f" (연휴 앞뒤처럼 극단적인 {cut}일은 세로축 밖이라 생략했습니다.)" if cut else ""))
+    return _out(fig, "png"), desc
+
+
 # ---------- 조립 ----------
 def _card(cid, title, fn, *args):
     html, desc = fn(*args)
@@ -361,15 +462,19 @@ def sections(line: str = "전체", dtype: str = "전체"):
                 _card("lines", "호선별 하루 평균 이용량", c_lines, line, dtype),
                 _card("stations", "이용량 많은 역 Top 15", c_station, line, dtype),
                 _card("ptype", "승객 유형별 시간대 구성", c_ptype_share)]},
-            {"title": "2. 날씨와 이용량의 관계 — 상관관계가 있는가", "cards": [
+            {"title": "2. 2025년 서울의 날씨 — 무엇과 비교하는가", "cards": [
+                _card("wmonth", "월별 기온과 강수량", c_weather_month),
+                _card("thist", "시간별 기온 분포", c_temp_hist)]},
+            {"title": "3. 날씨와 이용량의 관계 — 상관관계가 있는가", "cards": [
                 _card("corr", "상관계수 히트맵", c_corr, line, dtype),
                 _card("scatter", "기온과 이용량 (보정 전·후)", c_scatter, line, dtype),
+                _card("wbox", "날씨 유형별 하루 이용량 분포", c_weather_box, line, dtype),
                 _card("commute", "출퇴근 시간대: 맑음 vs 비·눈", c_rain_commute, line, dtype)]},
-            {"title": "3. 영향의 크기 — 얼마나, 누구에게", "cards": [
+            {"title": "4. 영향의 크기 — 얼마나, 누구에게", "cards": [
                 _card("factors", "날씨 구간별 영향 (신뢰구간)", c_factors, line, dtype),
                 _card("ptype-rain", "승객 유형별 반응", c_ptype_rain),
                 _card("line-rain", "호선별 반응", c_line_rain)]},
-            {"title": "4. 예측과 검증 — 믿을 만한가", "cards": [
+            {"title": "5. 예측과 검증 — 믿을 만한가", "cards": [
                 _card("backtest", "백테스트: 실제 vs 예측", c_backtest)]},
         ]
 

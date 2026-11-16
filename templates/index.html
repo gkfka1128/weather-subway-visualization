@@ -115,6 +115,20 @@
     </section>
   </main>
   <footer>자료: 서울교통공사 역별·시간대별 승하차 인원(2025), Open-Meteo 과거 날씨·예보. 데이터시각화 팀 프로젝트.</footer>
+  <script>
+    // mpld3 그래프는 고정 픽셀 크기로 그려져 좁은 카드에서 잘린다 → viewBox를 붙여 카드 폭에 맞춘다.
+    function fitMpld3() {
+      document.querySelectorAll("svg.mpld3-figure:not([viewBox])").forEach(svg => {
+        const w = +svg.getAttribute("width"), h = +svg.getAttribute("height");
+        if (!w || !h) return;
+        svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+        svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        svg.style.width = "100%"; svg.style.maxWidth = w + "px"; svg.style.height = "auto";
+      });
+    }
+    new MutationObserver(fitMpld3).observe(document.body, {childList: true, subtree: true});
+    addEventListener("load", fitMpld3);
+  </script>
   {% if static_site %}
   <script>
     const PAGES = {{ pages | tojson }};
