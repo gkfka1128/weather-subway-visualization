@@ -13,8 +13,7 @@ D = ROOT / "data"
 
 
 def main():
-    sub = pd.read_csv(D / "subway_hourly.csv")
-    sub = sub.groupby(["date", "hour", "line"], as_index=False)[["boardings", "alightings"]].sum()
+    sub = pd.read_csv(D / "subway_line_hourly.csv")  # 2023~2025 호선별 시간 합계
     wx = pd.read_csv(D / "weather_hourly.csv")
     hol = set(pd.read_csv(D / "holidays.csv")["date"])
 

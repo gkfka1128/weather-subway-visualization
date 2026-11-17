@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from analysis import (_HOUR_WEATHER, DF, LINES, ROOT, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAYS, backtest, group_stats,
+from analysis import (_HOUR_WEATHER, CUT, DF, LINES, ROOT, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAYS, backtest, group_stats,
                       make_t, t_for)
 
 from matplotlib import font_manager as _fm
@@ -162,14 +162,14 @@ def c_ptype_share():
     fig, ax = plt.subplots(figsize=(7.5, 3.8))
     ax.stackplot(pv.index, pv.T.to_numpy(), labels=PTYPES, alpha=.9,
                  colors=sns.color_palette("Set2", len(PTYPES)))
-    ax.set(title="평일 시간대별 승객 유형 구성 (전 호선)", xlabel="시간 (24=자정 이후)", ylabel="비율 (%)", xlim=(5, 24), ylim=(0, 100))
+    ax.set(title="평일 시간대별 승객 유형 구성 (전 호선, 2025년)", xlabel="시간 (24=자정 이후)", ylabel="비율 (%)", xlim=(5, 24), ylim=(0, 100))
     ax.legend(loc="upper left", ncol=3, fontsize=8)
     mid = pv.loc[11:15, "우대권"].mean()
     rush = pv.loc[[8, 18], "우대권"].mean()
     desc = (f"승객 유형별 비중입니다(중고생 유형은 전체의 0.00%라 제외). 대부분은 '일반'이지만 '우대권'(어르신·장애인 등 우대 대상)은 "
             f"출퇴근 피크(8·18시)에 평균 {rush:.0f}%로 낮다가 낮 시간대(11~15시)에는 {mid:.0f}%까지 올라갑니다. "
             "시간대마다 승객 구성이 다르므로 날씨에 반응하는 정도도 유형마다 다를 수 있습니다(아래 '승객 유형별 반응' 참고). "
-            "이 그래프는 호선·요일 선택과 무관하게 평일 전체 기준입니다.")
+            "이 그래프는 호선·요일 선택과 무관하게 평일 전체 기준이고, 승객 유형 구분이 있는 2025년 원본만 씁니다.")
     return _out(fig, "png"), desc
 
 
@@ -290,14 +290,14 @@ def c_ptype_rain():
     fig, ax = plt.subplots(figsize=(7, 3.8))
     df.plot(kind="bar", ax=ax, color={"비": C_BLUE, "눈": C_ORANGE})
     ax.plot([-.5, len(df) - .5], [0, 0], color="black", lw=.8)
-    ax.set(title="승객 유형별 비·눈 오는 날 이용량 변화 (전 호선)", xlabel="", ylabel="평소 대비 변화 (%)")
+    ax.set(title="승객 유형별 비·눈 오는 날 이용량 변화 (전 호선, 2025년)", xlabel="", ylabel="평소 대비 변화 (%)")
     ax.tick_params(axis="x", rotation=0)
     k = df["비"].idxmin()
     j = df["비"].idxmax()
     desc = (f"비 오는 날 가장 크게 줄어드는 유형은 '{k}'({df.loc[k, '비']:+.1f}%), 가장 덜 줄어드는 유형은 '{j}'({df.loc[j, '비']:+.1f}%)입니다. "
             "우대권·어린이 이용자는 일반 이용자보다 비 오는 날 더 많이 줄고, 직원은 거의 줄지 않습니다. "
             "이용을 미룰 수 있는 승객일수록 날씨에 민감하다고 해석할 수 있지만, 이 자료만으로 원인까지 확정할 수는 없습니다. "
-            "어린이·직원은 전체의 1% 안팎이라 변동이 큽니다.")
+            "어린이·직원은 전체의 1% 안팎이라 변동이 큽니다. 승객 유형 구분은 2025년 원본에만 있어 2025년 1년치로 계산했습니다.")
     return _out(fig, "html"), desc
 
 
@@ -339,7 +339,7 @@ def c_backtest():
     axes[1].legend(fontsize=8)
     fig.tight_layout()
     b, c = metrics.loc["B 최근 4주"], metrics.loc["C B+날씨"]
-    desc = (f"1~8월 데이터로 계수를 만들고 9~12월({ndays}일)을 맞혀 본 결과입니다. 하루 합계 오차는 연평균(A) {metrics.loc['A 연평균', '하루 합계']:.1f}% → "
+    desc = (f"{CUT[:4]}년 이전 데이터로 계수를 만들고 {CUT[:4]}년 1년({ndays}일)을 맞혀 본 결과입니다(학습에 쓰지 않은 한 해 전체라 계절이 모두 들어갑니다). 하루 합계 오차는 연평균(A, 이전 해들의 평균이라 해마다의 수준 변화까지 오차에 들어감) {metrics.loc['A 연평균', '하루 합계']:.1f}% → "
             f"최근 4주(B) {b['하루 합계']:.1f}%로 줄지만, 날씨 보정(C)을 더해도 {c['하루 합계']:.1f}%로 거의 달라지지 않습니다. "
             f"비·눈 온 {nwet}개 시간대만 보면 B {b['비·눈 온 시간만']:.1f}% → C {c['비·눈 온 시간만']:.1f}%로 약간 개선됩니다. "
             "결론: 날씨는 방향은 일관되지만 효과(±5% 안팎)가 평소 변동(약 6%)보다 작아서, 예측 정확도를 크게 올리진 못합니다. "
@@ -359,11 +359,15 @@ def _wx_daily() -> pd.DataFrame:
 
 def c_weather_month():
     d = _wx_daily()
-    m = d.groupby(d.index.month).agg(temp=("temp", "mean"), tmax=("tmax", "mean"), tmin=("tmin", "mean"),
-                                    precip=("precip", "sum"), wet=("precip", lambda x: int((x > 0.1).sum())))
+    yrs = sorted(d.index.year.unique())
+    by_year = d.groupby([d.index.year, d.index.month])["precip"].sum().unstack(0)  # 행=월, 열=해
+    m = d.groupby(d.index.month).agg(temp=("temp", "mean"), tmax=("tmax", "mean"), tmin=("tmin", "mean"))
+    m["precip"] = by_year.mean(axis=1)
     fig, ax = plt.subplots(figsize=(7, 3.8))
     ax2 = ax.twinx()
-    ax2.bar(m.index, m["precip"], color=C_BLUE, alpha=.28, width=.6, label="월 강수량 (mm)")
+    ax2.bar(m.index, m["precip"], color=C_BLUE, alpha=.28, width=.6, label=f"월 강수량 {len(yrs)}년 평균 (mm)")
+    ax2.scatter(np.repeat(m.index, len(yrs)), by_year.to_numpy().ravel(), s=9, color=C_BLUE, alpha=.7,
+                label="해마다 월 강수량", zorder=3)
     ax2.set_ylabel("월 강수량 (mm)")
     ax2.grid(False)
     ax.fill_between(m.index, m["tmin"], m["tmax"], color=C_ORANGE, alpha=.15, label="일 최저~최고 평균")
@@ -371,15 +375,17 @@ def c_weather_month():
     ax.axhline(0, color=C_GRAY, lw=.8)
     ax.set_zorder(ax2.get_zorder() + 1)
     ax.patch.set_visible(False)
-    ax.set(title="2025년 서울 월별 기온과 강수량", xlabel="월", ylabel="기온 (℃)", xticks=range(1, 13))
+    ax.set(title=f"{yrs[0]}~{yrs[-1]}년 서울 월별 기온과 강수량", xlabel="월", ylabel="기온 (℃)", xticks=range(1, 13))
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
     ax.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8)
     wet_m, cold_m, hot_m = m["precip"].idxmax(), m["temp"].idxmin(), m["temp"].idxmax()
     share = m.loc[[6, 7, 8], "precip"].sum() / m["precip"].sum()
-    desc = (f"선은 월 평균 기온, 띠는 하루 최저~최고 기온의 평균, 막대는 월 강수량입니다. "
+    swing = (by_year.max(axis=1) / by_year.min(axis=1).clip(lower=1)).loc[[6, 7, 8, 9]].max()
+    desc = (f"{yrs[0]}~{yrs[-1]}년 {len(yrs)}년 평균입니다. 선은 월 평균 기온, 띠는 하루 최저~최고 기온의 평균, 막대는 월 강수량 평균이고 "
+            f"점은 해마다의 월 강수량입니다. 여름 강수량은 같은 달이라도 해마다 최대 {swing:.0f}배 차이가 납니다. "
             f"가장 추운 달은 {cold_m}월({m.loc[cold_m, 'temp']:.1f}℃), 가장 더운 달은 {hot_m}월({m.loc[hot_m, 'temp']:.1f}℃)이고, "
-            f"비는 {wet_m}월({m.loc[wet_m, 'precip']:,.0f}mm)에 가장 많이 왔으며 6~8월이 한 해 강수량의 {share:.0%}를 차지합니다. "
+            f"비는 평균적으로 {wet_m}월({m.loc[wet_m, 'precip']:,.0f}mm)에 가장 많이 오고 6~8월이 한 해 강수량의 {share:.0%}를 차지합니다. "
             "비 오는 날이 여름에 몰려 있어서, 그냥 비교하면 '비 효과'에 '여름 효과'가 섞입니다. "
             "그래서 이 대시보드는 같은 시기의 맑은 날과 비교하는 기준선을 씁니다.")
     return _out(fig, "png"), desc
@@ -393,7 +399,8 @@ def c_temp_hist():
     for x, lab in ((0, "한파 기준 0℃"), (28, "폭염 기준 28℃")):
         ax.axvline(x, color=C_RED if x else C_BLUE, ls="--", lw=1.2)
         ax.text(x, ax.get_ylim()[1] * .95, f" {lab}", color=C_RED if x else C_BLUE, fontsize=8, va="top")
-    ax.set(title="2025년 서울 시간별 기온 분포", xlabel="기온 (℃)", ylabel="시간 수")
+    yrs = f"{_HOUR_WEATHER['date'].min()[:4]}~{_HOUR_WEATHER['date'].max()[:4]}"
+    ax.set(title=f"{yrs}년 서울 시간별 기온 분포", xlabel="기온 (℃)", ylabel="시간 수")
     cold, hot = (t <= 0).mean(), (t > 28).mean()
     desc = (f"지하철 운행 시간대 {len(t):,}개 시간의 기온을 1.5℃ 간격으로 센 히스토그램이고, 곡선은 분포를 부드럽게 그린 KDE입니다. "
             f"평균 {t.mean():.1f}℃, 가장 낮은 {t.min():.1f}℃부터 가장 높은 {t.max():.1f}℃까지 퍼져 있습니다. "
@@ -449,7 +456,6 @@ def c_weather_box(line, dtype):
 
 # ---------- 다른 요인과 비교 (달력·행사) ----------
 HOLIDAYS = pd.read_csv(ROOT / "data" / "holidays.csv").set_index("date")["name"].to_dict()
-SEOL_EXTRA = {"2025-01-27"}  # holidays.csv에는 '임시공휴일'이지만 설 연휴 첫날이다
 T95 = {2: 12.71, 3: 4.30, 4: 3.18, 5: 2.78, 6: 2.57, 7: 2.45, 8: 2.36, 9: 2.31, 10: 2.26, 15: 2.14, 20: 2.09, 30: 2.05}
 
 
@@ -481,13 +487,16 @@ def _day_effects() -> pd.DataFrame:
     g["labor"] = g.index.strftime("%m-%d") == "05-01"  # 근로자의 날: 공휴일은 아니지만 많은 회사가 쉰다
     # 징검다리: 공휴일 아닌 평일인데 전날과 다음날이 모두 쉬는 날(주말·공휴일·근로자의 날)
     off = g["hol"].notna() | (g["wd"] >= 5) | g["labor"]
-    g["bridge"] = ((g["wd"] < 5) & ~off & off.shift(1, fill_value=False) & off.shift(-1, fill_value=False))
+    # 빠진 날짜(2024년 4월)가 있어 행 이동 대신 실제 전날·다음날 날짜로 찾는다 (없는 날은 쉬는 날로 보지 않음)
+    prev_off = off.reindex(g.index - pd.Timedelta(days=1), fill_value=False).to_numpy()
+    next_off = off.reindex(g.index + pd.Timedelta(days=1), fill_value=False).to_numpy()
+    g["bridge"] = (g["wd"] < 5) & ~off & prev_off & next_off
     unusual = g["hol"].notna() | g["bridge"] | g["labor"] | (g["precip"] > 0.1) | (g["snow"] > 0)
     base = pd.concat([_same_weekday_base(x["use"], unusual.loc[x.index]) for _, x in g.groupby("wd")])
     g["eff"] = (g["use"] / base.reindex(g.index) - 1) * 100
     plain = g["hol"].isna() & ~g["bridge"] & ~g["labor"]
     g["cat"] = np.select(
-        [(g["hol"].fillna("").str.contains("설|추석") | g.index.strftime("%Y-%m-%d").isin(SEOL_EXTRA)) & (g["wd"] < 5),
+        [g["hol"].fillna("").str.contains("설|추석") & (g["wd"] < 5),
          g["hol"].notna() & (g["wd"] < 5), g["labor"], g["bridge"],
          plain & (g["snow"] > 0), plain & (g["precip"] >= 10), plain & (g["precip"] > 0.1),
          plain & (g["tmin"] <= -10), plain & (g["tmax"] >= 33)],
@@ -583,7 +592,7 @@ def sections(line: str = "전체", dtype: str = "전체"):
                 _card("lines", "호선별 하루 평균 이용량", c_lines, line, dtype),
                 _card("stations", "이용량 많은 역 Top 15", c_station, line, dtype),
                 _card("ptype", "승객 유형별 시간대 구성", c_ptype_share)]},
-            {"title": "2. 2025년 서울의 날씨 — 무엇과 비교하는가", "cards": [
+            {"title": "2. 2023~2025년 서울의 날씨 — 무엇과 비교하는가", "cards": [
                 _card("wmonth", "월별 기온과 강수량", c_weather_month),
                 _card("thist", "시간별 기온 분포", c_temp_hist)]},
             {"title": "3. 날씨와 이용량의 관계 — 상관관계가 있는가", "cards": [

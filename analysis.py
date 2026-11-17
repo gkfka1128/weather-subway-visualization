@@ -138,14 +138,21 @@ def group_stats(t: pd.DataFrame, col: str, order: list, mask=None) -> pd.DataFra
 
 
 # ---------- 기준 이용량 (예측용) ----------
+USUAL_YEAR = int(DF["date"].max()[:4])  # 데이터의 마지막 해 (지금은 2025)
+
+
 @lru_cache(maxsize=None)
 def usual_by_hour(line: str, dtype: str, anchor: str) -> pd.Series:
-    """2025년에서 anchor('MM-DD')와 앞뒤 4주 안에 있는 같은 요일유형 무강수일의 시간대별 평균."""
+    """가장 최근 해(USUAL_YEAR)에서 anchor('MM-DD')와 앞뒤 4주 안에 있는 같은 요일유형 무강수일의 시간대별 평균.
+
+    해마다 이용량 수준이 몇 %씩 달라서(2023년은 2025년보다 약 4% 적음), 평소 수준은 최근 1년으로만 잡는다.
+    """
     try:
-        center = pd.Timestamp(f"2025-{anchor}")
+        center = pd.Timestamp(f"{USUAL_YEAR}-{anchor}")
     except ValueError:  # 2/29
-        center = pd.Timestamp("2025-02-28")
-    sub = DF if line == "전체" else DF[DF["line"] == line]
+        center = pd.Timestamp(f"{USUAL_YEAR}-02-28")
+    sub = DF[DF["date"].str.startswith(str(USUAL_YEAR))]
+    sub = sub if line == "전체" else sub[sub["line"] == line]
     sub = sub[(sub["day_type"] == dtype) & (sub["precip_mm"] == 0) & (sub["snowfall_cm"] == 0)]
     tot = sub.groupby(["date", "hour"])["use"].sum().reset_index()
     gap = (pd.to_datetime(tot["date"]) - center).abs().dt.days
@@ -170,12 +177,12 @@ def day_type_of(d) -> str:
 
 
 # ---------- 백테스트 ----------
-CUT = "2025-09-01"
+CUT = f"{USUAL_YEAR}-01-01"  # 앞의 해들로 계수를 만들고 마지막 해 1년을 맞힌다
 
 
 @lru_cache(maxsize=None)
 def backtest():
-    """앞(1~8월)으로 계수를 만들고 뒤(9~12월)를 맞혀 본다. 세 가지 방법을 비교한다.
+    """앞의 해들(2023~2024)로 계수를 만들고 마지막 해(2025) 1년을 맞혀 본다. 세 가지 방법을 비교한다.
 
     A 연평균: 학습기간 무강수일 평균 / B 최근 4주 평균 / C B × 날씨 보정(학습기간 계수)
     """

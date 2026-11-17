@@ -232,7 +232,7 @@ async function renderService() {
     <section class="card"><h2>시간대별 이용 수준</h2><div class="bars">${bars}</div></section>
     <section class="card"><h2>${hour}시, 호선별 비교 <small>(한산한 순)</small></h2><ul class="cmp">${cmp}</ul>
       <p class="small">100%는 그 호선이 그날 가장 붐비는 시간이에요. 출근·퇴근 피크에는 대부분 호선이 100%에 가깝고, 호선끼리 승객 수를 비교한 것은 아니에요.</p></section>
-    <p class="card small"><span class="lbl">근거</span>2025년 서울 지하철 승하차 데이터에서 ${ev[0].label} <b>${ev[0].value}</b>,
+    <p class="card small"><span class="lbl">근거</span>2023~2025년 서울 지하철 승하차 데이터에서 ${ev[0].label} <b>${ev[0].value}</b>,
       ${ev[1].label} <b>${ev[1].value}</b>. 날씨 영향은 방향은 일관되지만 크기는 작아서, 이 서비스의 수준 표시는 대부분 요일·시간대 패턴에서 나옵니다.</p>`;
 
     document.getElementById("sel-line").onchange = e => { location.href = "today.html?" + new URLSearchParams({ line: e.target.value, day: offset, hour }); };

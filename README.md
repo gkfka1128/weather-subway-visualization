@@ -1,6 +1,6 @@
 # 날씨가 서울 지하철 이용량에 미치는 영향 (Flask + matplotlib/seaborn + mpld3)
 
-서울교통공사 1~8호선 2025년 승하차 데이터와 Open-Meteo 날씨를 합쳐
+서울교통공사 1~8호선 2023~2025년(3년) 승하차 데이터와 Open-Meteo 날씨를 합쳐
 (1) 날씨와 이용량의 관계를 그래프 16개로 보여 주는 **발표용 대시보드**(포트 5000)와
 (2) 오늘~6일 뒤 예보로 "지하철, 이 시간에 붐빌까?"를 알려 주는 **이용자용 서비스**(포트 5001)를 제공한다.
 
@@ -56,6 +56,21 @@ main에 push하면 `.github/workflows/pages.yml`이 빌드·배포한다(저장�
 - `prep/` — 데이터 준비 스크립트 (`aggregate_subway.py`, `fetch_weather.py`, `merge.py`)
 - `data/` — 집계·병합 CSV (원본 `data/raw/`는 git 제외), `TEAM_PLAN.md`, `report/`
 
+### 데이터 다시 만들기
+
+원본(약 210MB, git 제외)을 `data/raw/`에 아래 이름으로 받은 뒤 `prep/` 스크립트를 순서대로 실행한다.
+
+| 파일 | 출처 |
+|---|---|
+| `subway_1.csv`, `subway_2.csv` (2025년 상·하반기, 승객유형 포함) | 서울 열린데이터광장 OA-22470 |
+| `subway_2023.csv`, `subway_2024.csv` (승객유형 없음) | 공공데이터포털 15048032 「주기성 과거 데이터」의 20231231·20241231 파일 |
+
+```bash
+python prep/aggregate_subway.py   # → subway_line_hourly / subway_hourly(2025 승객유형) / subway_station
+python prep/fetch_weather.py      # → weather_hourly (Open-Meteo 2023~2025), holidays
+python prep/merge.py              # → merged.csv
+```
+
 ## 방법 요약
 
 1. 같은 요일 유형·시간대의 **앞뒤 4주 무강수일 평균**을 그날의 기준선으로 두고 실제/기준선 비율을 날씨 구간별로 비교(계절·연휴 효과 제거).
@@ -65,5 +80,5 @@ main에 push하면 `.github/workflows/pages.yml`이 빌드·배포한다(저장�
 ## 한계
 
 - 이용량은 승하차 인원이며 열차 안 혼잡도가 아니다.
-- 데이터는 2025년 1년치. 강한 비·눈 표본이 적다. 2026 공휴일은 `analysis.py`에 수동 입력.
+- 데이터는 2023~2025년 3년치(승객 유형은 2025년만). 2024년 4월은 원본 파일의 시간대 칸이 밀려 있어 통째로 제외(`prep/aggregate_subway.py`의 `BAD_DATES`). 강한 비 141시간대·눈 305시간대로 여전히 많지 않다. 예측의 평소 수준은 최근 1년(2025) 기준. 2026 공휴일은 `analysis.py`에 수동 입력.
 - 예보일이 멀수록 오차가 커진다.
