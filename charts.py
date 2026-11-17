@@ -449,6 +449,13 @@ def c_weather_box(line, dtype):
 
 # ---------- 다른 요인과 비교 (달력·행사) ----------
 HOLIDAYS = pd.read_csv(ROOT / "data" / "holidays.csv").set_index("date")["name"].to_dict()
+SEOL_EXTRA = {"2025-01-27"}  # holidays.csv에는 '임시공휴일'이지만 설 연휴 첫날이다
+T95 = {2: 12.71, 3: 4.30, 4: 3.18, 5: 2.78, 6: 2.57, 7: 2.45, 8: 2.36, 9: 2.31, 10: 2.26, 15: 2.14, 20: 2.09, 30: 2.05}
+
+
+def _t95(n: int) -> float:
+    """표본 n개의 95% 신뢰구간 t값 (scipy 없이 근사표)."""
+    return next((v for k, v in sorted(T95.items()) if n <= k), 1.96)
 DOW = "월화수목금토일"
 
 
@@ -480,7 +487,7 @@ def _day_effects() -> pd.DataFrame:
     g["eff"] = (g["use"] / base.reindex(g.index) - 1) * 100
     plain = g["hol"].isna() & ~g["bridge"] & ~g["labor"]
     g["cat"] = np.select(
-        [g["hol"].fillna("").str.contains("설|추석") & (g["wd"] < 5),
+        [(g["hol"].fillna("").str.contains("설|추석") | g.index.strftime("%Y-%m-%d").isin(SEOL_EXTRA)) & (g["wd"] < 5),
          g["hol"].notna() & (g["wd"] < 5), g["labor"], g["bridge"],
          plain & (g["snow"] > 0), plain & (g["precip"] >= 10), plain & (g["precip"] > 0.1),
          plain & (g["tmin"] <= -10), plain & (g["tmax"] >= 33)],
@@ -496,7 +503,7 @@ def c_factor_size():
     rows = []
     for c in cal + wx:
         e = g.loc[g["cat"] == c, "eff"].dropna()
-        ci = 1.96 * e.std(ddof=1) / np.sqrt(len(e)) if len(e) > 1 else 0
+        ci = _t95(len(e)) * e.std(ddof=1) / np.sqrt(len(e)) if len(e) > 1 else 0
         rows.append((c, e.mean(), ci, len(e)))
     r = pd.DataFrame(rows, columns=["cat", "m", "ci", "n"])
     fig, ax = plt.subplots(figsize=(9, 4.2))
@@ -504,7 +511,7 @@ def c_factor_size():
     ax.barh(y, r["m"], xerr=r["ci"], color=[C_RED] * len(cal) + [C_BLUE] * len(wx), alpha=.85,
             error_kw={"ecolor": "#55534e", "lw": 1, "capsize": 3}, height=.62)
     ax.set_yticks(y)
-    ax.set_yticklabels([f"{c} ({n}일)" for c, n in zip(r["cat"], r["n"])])
+    ax.set_yticklabels([f"{c} ({n}일{', 참고' if n < 2 else ''})" for c, n in zip(r["cat"], r["n"])])
     for yy, m, ci in zip(y, r["m"], r["ci"]):
         ax.text(m - ci - 1, yy, f"{m:+.1f}%", va="center", ha="right", fontsize=8.5, color="#1b1b1a")
     ax.axvline(0, color="#55534e", lw=.8)
@@ -513,7 +520,7 @@ def c_factor_size():
     ax.set(title="하루 이용량을 바꾸는 요인 — 같은 요일 보통날 대비 (1~8호선 전체)", xlabel="평균 변화 (%, 선=95% 신뢰구간)")
     big = r.set_index("cat")
     wmax = big.loc[wx, "m"].abs().max()
-    desc = (f"각 날의 하루 이용량을 같은 요일 앞뒤 4주의 보통날(공휴일·비·눈 없는 날) 중앙값과 비교했습니다. "
+    desc = (f"각 날의 하루 이용량을 같은 요일 앞뒤 4주의 보통날(공휴일·징검다리·근로자의 날·비·눈이 아닌 날) 중앙값과 비교했습니다. "
             f"빨간 막대(달력)는 설·추석 연휴 {big.loc[cal[0], 'm']:+.0f}%, 그 밖의 공휴일 {big.loc[cal[1], 'm']:+.0f}%, "
             f"근로자의 날 {big.loc[cal[2], 'm']:+.0f}%, 징검다리 평일 {big.loc[cal[3], 'm']:+.0f}%로 줄고, "
             f"파란 막대(날씨)는 가장 큰 것도 {wmax:.1f}% 안팎입니다. "
@@ -538,6 +545,7 @@ def _station_spikes() -> pd.DataFrame:
 
 def c_station_spikes():
     s = _station_spikes()
+    s = s[~s["date"].isin(HOLIDAYS.keys())]  # 공휴일 자체의 나들이 증가는 '행사'와 섞이지 않게 뺀다
     top = s.sort_values("r", ascending=False).drop_duplicates(["line", "station"]).head(10)
     many = s[s["r"] >= 3].groupby(["line", "station"]).size().sort_values(ascending=False)
     fig, ax = plt.subplots(figsize=(9, 4.2))
@@ -554,8 +562,8 @@ def c_station_spikes():
     first = top.iloc[0]
     desc = (f"역마다 하루 이용량을 같은 요일 앞뒤 4주 중앙값과 비교해, 가장 크게 튄 날을 역별로 하나씩 뽑은 상위 10곳입니다(하루 평균 5천 명 이상 역). "
             f"1위는 {first['station']}({first['line']}) {first['date']}로 평소의 {first['r']:.1f}배입니다. "
-            f"{many.index[0][1]}역은 평소의 3배 이상인 날이 {many.iloc[0]}일이나 됩니다. "
-            "경기장·한강공원 근처 역이 많아, 경기·공연·축제 같은 행사가 원인으로 추정됩니다(날짜별 행사는 별도 확인 필요). "
+            + (f"{many.index[0][1]}역은 평소의 3배 이상인 날이 {many.iloc[0]}일이나 됩니다. " if len(many) else "")
+            + "경기장·한강공원 근처 역이 많아, 경기·공연·축제 같은 행사가 원인으로 추정됩니다(날짜별 행사는 별도 확인 필요). "
             "노선 전체로 보면 날씨 효과는 몇 %지만, 역 하나만 보면 행사 하나가 이용량을 몇 배로 바꿉니다.")
     return _out(fig, "png"), desc
 
