@@ -116,6 +116,16 @@ h1 { margin:0; font-size:clamp(1.6rem, 3.2vw, 2.4rem); font-weight:800; letter-s
 .plot { background:#fff; text-align:center; overflow-x:auto; }
 .desc { color:var(--ink2); font-size:.9rem; line-height:1.65; margin:12px 0 0; max-width:72ch; }
 .desc b { color:var(--ink); }
+/* 그래프 설명: 핵심 한 줄(강조) + 라벨 붙은 짧은 문단 */
+.cdesc { margin:14px 0 0; max-width:76ch; font-size:.88rem; line-height:1.65; color:var(--ink2); }
+.cdesc p { margin:0 0 6px; display:grid; grid-template-columns:4.9em 1fr; gap:8px; align-items:baseline; }
+.cdesc p.key { display:block; }
+.cdesc .key { margin:0 0 10px; padding:8px 12px; border-left:3px solid var(--accent); background:#eef5f2;
+              color:var(--ink); font-size:.97rem; font-weight:600; line-height:1.55; }
+.cdesc .key b { color:var(--accent); font-weight:800; }
+.cdesc b { color:var(--ink); }
+.cdesc .tag { display:block; padding:0 4px; border:1px solid var(--rule);
+              border-radius:2px; font-size:.72rem; font-weight:700; color:var(--ink2); text-align:center; vertical-align:1px; }
 .png { max-width:100%; height:auto; }
 /* mpld3 기본 격자(검은 굵은 선)를 연하게 */
 .mpld3-xgrid line, .mpld3-ygrid line, .mpld3-xgrid path, .mpld3-ygrid path { stroke:#ebe8e1 !important; stroke-opacity:1 !important; }

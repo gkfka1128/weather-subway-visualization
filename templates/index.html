@@ -100,7 +100,11 @@
       <section class="card{{ ' wide' if c.id in ('factors', 'backtest', 'scatter', 'factor-size', 'spikes') }}" id="{{ c.id }}">
         <h2>{{ c.title }}</h2>
         <div class="plot">{{ c.html | safe }}</div>
-        <p class="desc">{{ c.desc }}</p>
+        <div class="cdesc">
+          <p class="key">{{ c.desc.key }}</p>
+          {% for lab, txt in c.desc.paras %}<p><span class="tag">{{ lab }}</span><span>{{ txt }}</span></p>
+          {% endfor %}
+        </div>
       </section>
       {% endfor %}
     </div>

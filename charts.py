@@ -1,6 +1,7 @@
 """대시보드 그래프 16개 + 오늘 예측 그래프. 설명 문장의 숫자는 그때그때 데이터에서 계산한다."""
 import base64
 import io
+import re
 import threading
 from functools import lru_cache
 
@@ -12,6 +13,7 @@ import mpld3
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from markupsafe import Markup, escape
 
 from analysis import (_HOUR_WEATHER, CUT, DF, LINES, ROOT, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAYS, backtest, group_stats,
                       make_t, t_for)
@@ -84,6 +86,11 @@ def _sub(line, dtype):
     return sub if dtype == "전체" else sub[sub["day_type"] == dtype]
 
 
+def _desc(key: str, *paras) -> dict:
+    """그래프 설명: key=핵심 메시지 한 줄, paras=(라벨, 문장). None은 건너뛴다. 문장 속 **굵게** 표시를 쓸 수 있다."""
+    return {"key": key, "paras": [p for p in paras if p and p[1]]}
+
+
 def _scope(line, dtype) -> str:
     return " · ".join(x for x in (None if line == "전체" else line, None if dtype == "전체" else dtype) if x) or "전체"
 
@@ -114,9 +121,9 @@ def c_heat(line, dtype):
     flat = pv.stack()
     (dy, dh), top = flat.idxmax(), flat.max()
     wk = pv.loc[["월", "화", "수", "목", "금"]].mean().max() if set("월화수목금") <= set(pv.index) else np.nan
-    desc = (f"색이 진할수록 이용량이 많습니다. 가장 붐비는 칸은 {dy}요일 {dh}시(시간당 평균 {top / 1000:,.0f}천 명)이며, "
-            "평일에는 출근(7~9시)과 퇴근(17~19시) 두 개의 봉우리가, 주말에는 낮 시간대의 낮고 넓은 봉우리가 보입니다. "
-            "날씨 영향을 보기 전에 먼저 '이용량이 원래 시간·요일에 따라 크게 달라진다'는 점을 확인하는 그래프입니다.")
+    desc = _desc(f"가장 붐비는 때는 **{dy}요일 {dh}시**(시간당 평균 {top / 1000:,.0f}천 명)입니다.",
+                 ("읽는 법", "색이 진할수록 이용량이 많습니다. 평일은 **출근(7~9시)·퇴근(17~19시) 두 봉우리**, 주말은 낮 시간대의 낮고 넓은 봉우리입니다."),
+                 ("왜 보나", "날씨를 보기 전에, 이용량이 원래 시간·요일에 따라 크게 달라진다는 점을 먼저 확인합니다."))
     return _out(fig, "png"), desc
 
 
@@ -131,9 +138,9 @@ def c_lines(line, dtype):
     ax.set_xticklabels(list(s.index))
     ax.set(title=f"호선별 하루 평균 이용량 ({dtype})", xlabel="호선", ylabel="하루 평균 이용량 (만 명)")
     top, low = s.idxmax(), s.idxmin()
-    desc = (f"{top}이 하루 평균 {s.max():,.0f}만 명으로 가장 많고 {low}이 {s.min():,.0f}만 명으로 가장 적습니다"
-            f"(1일 이용량 = 승차+하차). 호선별 규모 차이가 커서, 날씨 영향도 '비율'로 비교해야 공정합니다. "
-            "막대 색은 각 호선의 고유색이고, 호선을 고르면 그 호선만 진하게 표시됩니다.")
+    desc = _desc(f"**{top}**이 하루 평균 {s.max():,.0f}만 명으로 가장 많고, {low}은 {s.min():,.0f}만 명으로 가장 적습니다.",
+                 ("읽는 법", "1일 이용량 = 승차+하차. 막대 색은 호선 고유색이고, 호선을 고르면 그 호선만 진하게 표시됩니다."),
+                 ("왜 보나", "호선별 규모 차이가 커서, 날씨 영향은 사람 수가 아니라 **비율(%)**로 비교해야 공정합니다."))
     return _out(fig, "html"), desc
 
 
@@ -142,14 +149,19 @@ def c_station(line, dtype):
     sub = sub if dtype == "전체" else sub[sub["day_type"] == dtype]
     n = sub["date"].nunique()
     s = (sub.groupby(["station", "line"])["use"].sum() / n / 10000).nlargest(15).iloc[::-1]
-    fig, ax = plt.subplots(figsize=(7, 4.6))
-    ax.barh(range(len(s)), s.to_numpy(), color=C_BLUE)
+    # 역 이름 뒤 괄호 부기명(예: 잠실(송파구청))은 빼고, 호선은 막대 색으로도 보여 준다
+    names = [f"{a.split('(')[0]} · {b}" for a, b in s.index]
+    fig, ax = plt.subplots(figsize=(7, 4.8))
+    ax.barh(range(len(s)), s.to_numpy(), color=[LINE_COLORS.get(b, C_BLUE) for _, b in s.index], height=.7)
     ax.set_yticks(range(len(s)))
-    ax.set_yticklabels([f"{a}({b})" for a, b in s.index])
+    ax.set_yticklabels(names, fontsize=9)
     ax.set(title=f"이용량 많은 역 15곳 ({_scope(line, dtype)})", xlabel="하루 평균 이용량 (만 명)")
+    # mpld3는 bbox_inches="tight"가 없어 긴 라벨이 잘린다 → 가장 긴 라벨 길이만큼 왼쪽 여백을 직접 잡는다
+    fig.subplots_adjust(left=min(.45, .06 + .024 * max(len(x) for x in names)), right=.97, top=.92, bottom=.11)
     a, b = s.index[-1]
-    desc = (f"{a}역({b})이 하루 평균 {s.iloc[-1]:,.1f}만 명으로 1위입니다. 역별 자료는 시간대 구분이 없는 일 단위라서, "
-            "예측은 호선 단위로 하고 역은 규모를 확인하는 용도로 씁니다.")
+    desc = _desc(f"**{a.split('(')[0]}역({b})**이 하루 평균 {s.iloc[-1]:,.1f}만 명으로 1위입니다.",
+                 ("읽는 법", "막대 색은 호선 고유색입니다. 역 이름 뒤 괄호 부기명은 줄였습니다."),
+                 ("참고", "역별 자료는 시간대 구분이 없는 일 단위라서, 예측은 호선 단위로 하고 역은 규모 확인용으로 씁니다."))
     return _out(fig, "html"), desc
 
 
@@ -166,10 +178,10 @@ def c_ptype_share():
     ax.legend(loc="upper left", ncol=3, fontsize=8)
     mid = pv.loc[11:15, "우대권"].mean()
     rush = pv.loc[[8, 18], "우대권"].mean()
-    desc = (f"승객 유형별 비중입니다(중고생 유형은 전체의 0.00%라 제외). 대부분은 '일반'이지만 '우대권'(어르신·장애인 등 우대 대상)은 "
-            f"출퇴근 피크(8·18시)에 평균 {rush:.0f}%로 낮다가 낮 시간대(11~15시)에는 {mid:.0f}%까지 올라갑니다. "
-            "시간대마다 승객 구성이 다르므로 날씨에 반응하는 정도도 유형마다 다를 수 있습니다(아래 '승객 유형별 반응' 참고). "
-            "이 그래프는 호선·요일 선택과 무관하게 평일 전체 기준이고, 승객 유형 구분이 있는 2025년 원본만 씁니다.")
+    desc = _desc(f"'우대권'(어르신·장애인 등) 비중은 출퇴근 피크(8·18시)에 **{rush:.0f}%**, 낮 시간대(11~15시)에는 **{mid:.0f}%**까지 올라갑니다.",
+                 ("읽는 법", "시간대별 승객 유형 비중입니다. 대부분은 '일반'이고, 중고생 유형은 0.00%라 뺐습니다."),
+                 ("왜 보나", "시간대마다 승객 구성이 달라서 날씨 반응도 유형마다 다를 수 있습니다(아래 '승객 유형별 반응')."),
+                 ("주의", "호선·요일 선택과 무관하게 평일 전체 기준이며, 유형 구분이 있는 2025년 원본만 씁니다."))
     return _out(fig, "png"), desc
 
 
@@ -185,9 +197,9 @@ def c_corr(line, dtype):
     ax.tick_params(axis="x", rotation=0)
     adj = corr["계절·연휴까지 보정"]
     k = adj.abs().idxmax()
-    desc = (f"하루 단위 상관계수(−1~+1)입니다. 왼쪽은 요일 유형만 보정한 값, 오른쪽은 계절·연휴 영향까지 걷어낸 값입니다. "
-            f"보정 후 가장 큰 변수는 '{k}'(r={adj[k]:+.2f})이고, 모든 값의 절댓값이 {adj.abs().max():.2f} 이하라서 "
-            "날씨와 이용량의 직선 관계는 약합니다. 왼쪽과 오른쪽 차이가 크면 그만큼이 '날씨가 아니라 계절 때문'이었다는 뜻입니다.")
+    desc = _desc(f"보정 후 상관계수는 모두 **|r| ≤ {adj.abs().max():.2f}**로, 날씨와 이용량의 직선 관계는 약합니다.",
+                 ("읽는 법", f"하루 단위 상관계수(−1~+1)입니다. 왼쪽은 요일 유형만 보정, 오른쪽은 계절·연휴까지 걷어낸 값이며, 보정 후 가장 큰 변수는 '{k}'(r={adj[k]:+.2f})입니다."),
+                 ("해석", "왼쪽과 오른쪽 차이가 클수록, 그만큼은 **날씨가 아니라 계절 때문**이었다는 뜻입니다."))
     return _out(fig, "png"), desc
 
 
@@ -205,10 +217,9 @@ def c_scatter(line, dtype):
         ax.legend(fontsize=8)
     raw_rng = d.groupby(pd.cut(d["temp_c"], np.arange(-15, 40, 5)), observed=True)["raw"].mean()
     adj_rng = d.groupby(pd.cut(d["temp_c"], np.arange(-15, 40, 5)), observed=True)["ratio"].mean()
-    desc = (f"기온과 하루 이용량의 관계입니다. 보정 전에는 구간 평균이 {raw_rng.min():.2f}~{raw_rng.max():.2f}로 "
-            f"{(raw_rng.max() - raw_rng.min()) * 100:.0f}%p 벌어지지만, 보정 후에는 {adj_rng.min():.2f}~{adj_rng.max():.2f}"
-            f"({(adj_rng.max() - adj_rng.min()) * 100:.0f}%p)로 좁아집니다. 즉 '추운 날 이용량이 적다'는 현상의 상당 부분은 "
-            "기온 자체가 아니라 계절·연휴 요인이었습니다.")
+    desc = _desc(f"기온에 따른 차이가 보정 전 **{(raw_rng.max() - raw_rng.min()) * 100:.0f}%p**에서 보정 후 **{(adj_rng.max() - adj_rng.min()) * 100:.0f}%p**로 줄어듭니다.",
+                 ("읽는 법", f"점 하나가 하루, 빨간 선은 5℃ 구간 평균입니다. 구간 평균은 보정 전 {raw_rng.min():.2f}~{raw_rng.max():.2f}, 보정 후 {adj_rng.min():.2f}~{adj_rng.max():.2f}입니다."),
+                 ("해석", "'추운 날 이용량이 적다'는 현상의 상당 부분은 기온 자체가 아니라 **계절·연휴 요인**이었습니다."))
     fig.tight_layout()
     return _out(fig, "png"), desc
 
@@ -231,13 +242,13 @@ def c_rain_commute(line, dtype):
     cnt = t.groupby("날씨")["date"].nunique()
     if "비" in g and "맑음" in g:
         diff = g["비"].sum() / g["맑음"].sum() - 1
-        txt = f"출퇴근 6개 시간대 합계로 비 오는 날은 맑은 날보다 {diff * 100:+.1f}%입니다. "
+        key = f"출퇴근 시간대에 비 오는 날은 맑은 날보다 **{diff * 100:+.1f}%**입니다. 출퇴근은 날씨가 나빠도 가야 해서 차이가 작습니다."
     else:
-        txt = ""
-    if weekend:
-        txt = "출퇴근 비교라 요일 유형 선택과 관계없이 평일 자료만 씁니다. " + txt
-    desc = (txt + f"다만 단순 평균 비교라 계절이 섞여 있고, 비·눈이 온 날 수가 적습니다(비 {cnt.get('비', 0)}일, 눈 {cnt.get('눈', 0)}일). "
-            "출퇴근은 날씨가 나빠도 가야 하므로 감소폭이 작습니다. 정밀한 비교는 아래 '날씨 구간별 영향' 그래프를 보세요.")
+        key = "출퇴근은 날씨가 나빠도 가야 하는 이동이라 차이가 작습니다."
+    desc = _desc(key,
+                 ("참고", "출퇴근 비교라 요일 유형 선택과 관계없이 평일 자료만 씁니다.") if weekend else None,
+                 ("주의", f"출퇴근 6개 시간대(7~9시, 17~19시)의 단순 평균 비교라 계절이 섞여 있고, 비·눈 온 날이 적습니다(비 {cnt.get('비', 0)}일, 눈 {cnt.get('눈', 0)}일). "
+                         "정밀한 비교는 아래 **'날씨 구간별 영향'**을 보세요."))
     return _out(fig, "html"), desc
 
 
@@ -268,10 +279,9 @@ def c_factors(line, dtype):
     fig.tight_layout()
     worst = min(zip(labels1, mean1), key=lambda p: p[1] if p[1] == p[1] else 9)
     wide = [l for l, m, c in zip(labels1, mean1, ci1) if l != "무강수" and m == m and c == c and abs(m - 1) < c]
-    desc = (f"각 시간대의 실제 이용량을 '같은 계절·요일 유형·시간대의 무강수일 평균'으로 나눈 비율의 평균입니다. "
-            f"가장 크게 줄어드는 구간은 '{worst[0]}'({(worst[1] - 1) * 100:+.1f}%)이고, 기온 구간의 차이는 대부분 ±2% 안쪽입니다. "
-            + (f"신뢰구간이 0을 포함하는 구간({', '.join(wide)})은 '차이가 없다'와 구분되지 않으므로 해석에 주의하세요. " if wide else "")
-            + "이 비율이 오늘 예측에 곱해지는 보정 계수입니다.")
+    desc = _desc(f"가장 크게 줄어드는 구간은 **'{worst[0]}' {(worst[1] - 1) * 100:+.1f}%**이고, 기온 구간은 대부분 ±2% 안쪽입니다.",
+                 ("읽는 법", "각 시간대 실제 이용량 ÷ '같은 계절·요일 유형·시간대의 무강수일 평균'의 평균입니다. 이 비율이 **오늘 예측에 곱해지는 보정 계수**입니다."),
+                 ("주의", f"신뢰구간이 0을 포함하는 구간({', '.join(wide)})은 '차이 없음'과 구분되지 않습니다.") if wide else None)
     return _out(fig, "png"), desc
 
 
@@ -294,10 +304,9 @@ def c_ptype_rain():
     ax.tick_params(axis="x", rotation=0)
     k = df["비"].idxmin()
     j = df["비"].idxmax()
-    desc = (f"비 오는 날 가장 크게 줄어드는 유형은 '{k}'({df.loc[k, '비']:+.1f}%), 가장 덜 줄어드는 유형은 '{j}'({df.loc[j, '비']:+.1f}%)입니다. "
-            "우대권·어린이 이용자는 일반 이용자보다 비 오는 날 더 많이 줄고, 직원은 거의 줄지 않습니다. "
-            "이용을 미룰 수 있는 승객일수록 날씨에 민감하다고 해석할 수 있지만, 이 자료만으로 원인까지 확정할 수는 없습니다. "
-            "어린이·직원은 전체의 1% 안팎이라 변동이 큽니다. 승객 유형 구분은 2025년 원본에만 있어 2025년 1년치로 계산했습니다.")
+    desc = _desc(f"비 오는 날 **'{k}' {df.loc[k, '비']:+.1f}%**로 가장 크게 줄고, '{j}'는 {df.loc[j, '비']:+.1f}%로 가장 덜 줄어듭니다.",
+                 ("해석", "우대권·어린이처럼 이용을 미룰 수 있는 승객일수록 날씨에 민감해 보이지만, 이 자료만으로 원인까지 확정할 수는 없습니다."),
+                 ("주의", "어린이·직원은 전체의 1% 안팎이라 변동이 큽니다. 유형 구분이 있는 2025년 1년치로 계산했습니다."))
     return _out(fig, "html"), desc
 
 
@@ -314,9 +323,9 @@ def c_line_rain():
     ax.set(title="호선별 비·눈 오는 날 이용량 변화", xlabel="", ylabel="평소 대비 변화 (%)")
     ax.tick_params(axis="x", rotation=0)
     k, j = df["비"].idxmin(), df["비"].idxmax()
-    desc = (f"비 오는 날 {k}이 {df.loc[k, '비']:+.1f}%로 가장 크게, {j}이 {df.loc[j, '비']:+.1f}%로 가장 적게 줄었습니다. "
-            "호선마다 이용 목적(출퇴근·여가 등)이 달라 반응 정도가 다를 수 있으나, 이 자료만으로 원인까지 확정하긴 어렵습니다. "
-            "호선 선택 콤보박스와 무관하게 전체 호선을 비교합니다.")
+    desc = _desc(f"비 오는 날 **{k} {df.loc[k, '비']:+.1f}%**로 가장 크게, {j}은 {df.loc[j, '비']:+.1f}%로 가장 적게 줄었습니다.",
+                 ("해석", "호선마다 이용 목적(출퇴근·여가 등)이 달라 반응이 다를 수 있으나, 원인까지 확정하긴 어렵습니다."),
+                 ("참고", "호선 선택과 무관하게 전체 호선을 비교합니다."))
     return _out(fig, "html"), desc
 
 
@@ -339,11 +348,13 @@ def c_backtest():
     axes[1].legend(fontsize=8)
     fig.tight_layout()
     b, c = metrics.loc["B 최근 4주"], metrics.loc["C B+날씨"]
-    desc = (f"{CUT[:4]}년 이전 데이터로 계수를 만들고 {CUT[:4]}년 1년({ndays}일)을 맞혀 본 결과입니다(학습에 쓰지 않은 한 해 전체라 계절이 모두 들어갑니다). 하루 합계 오차는 연평균(A, 이전 해들의 평균이라 해마다의 수준 변화까지 오차에 들어감) {metrics.loc['A 연평균', '하루 합계']:.1f}% → "
-            f"최근 4주(B) {b['하루 합계']:.1f}%로 줄지만, 날씨 보정(C)을 더해도 {c['하루 합계']:.1f}%로 거의 달라지지 않습니다. "
-            f"비·눈 온 {nwet}개 시간대만 보면 B {b['비·눈 온 시간만']:.1f}% → C {c['비·눈 온 시간만']:.1f}%로 약간 개선됩니다. "
-            "결론: 날씨는 방향은 일관되지만 효과(±5% 안팎)가 평소 변동(약 6%)보다 작아서, 예측 정확도를 크게 올리진 못합니다. "
-            "그래서 서비스는 '날씨 때문에 붐빈다/한산하다'가 아니라 '평소 대비 몇 % 차이'로 안내합니다.")
+    desc = _desc(f"날씨 보정(C)을 더해도 하루 오차는 **{b['하루 합계']:.1f}% → {c['하루 합계']:.1f}%**로 거의 그대로입니다.",
+                 ("검증 방법", f"{CUT[:4]}년 이전 데이터로 계수를 만들고, 학습에 쓰지 않은 {CUT[:4]}년 1년({ndays}일)을 맞혀 봤습니다. 한 해 전체라 계절이 모두 들어갑니다."),
+                 ("결과", f"하루 합계 오차는 연평균(A) {metrics.loc['A 연평균', '하루 합계']:.1f}% → 최근 4주(B) {b['하루 합계']:.1f}% → B+날씨(C) {c['하루 합계']:.1f}%입니다. "
+                         f"비·눈 온 {nwet}개 시간대만 보면 B {b['비·눈 온 시간만']:.1f}% → C {c['비·눈 온 시간만']:.1f}%로 약간 개선됩니다. "
+                         "A는 이전 해 평균이라 해마다의 수준 변화까지 오차에 들어갑니다."),
+                 ("결론", "날씨 효과는 방향은 일관되지만 평소 변동보다 작아 정확도를 크게 올리진 못합니다. "
+                         "그래서 서비스는 **'평소 대비 몇 % 차이'**로 안내합니다."))
     return _out(fig, "png"), desc
 
 
@@ -382,12 +393,11 @@ def c_weather_month():
     wet_m, cold_m, hot_m = m["precip"].idxmax(), m["temp"].idxmin(), m["temp"].idxmax()
     share = m.loc[[6, 7, 8], "precip"].sum() / m["precip"].sum()
     swing = (by_year.max(axis=1) / by_year.min(axis=1).clip(lower=1)).loc[[6, 7, 8, 9]].max()
-    desc = (f"{yrs[0]}~{yrs[-1]}년 {len(yrs)}년 평균입니다. 선은 월 평균 기온, 띠는 하루 최저~최고 기온의 평균, 막대는 월 강수량 평균이고 "
-            f"점은 해마다의 월 강수량입니다. 여름 강수량은 같은 달이라도 해마다 최대 {swing:.0f}배 차이가 납니다. "
-            f"가장 추운 달은 {cold_m}월({m.loc[cold_m, 'temp']:.1f}℃), 가장 더운 달은 {hot_m}월({m.loc[hot_m, 'temp']:.1f}℃)이고, "
-            f"비는 평균적으로 {wet_m}월({m.loc[wet_m, 'precip']:,.0f}mm)에 가장 많이 오고 6~8월이 한 해 강수량의 {share:.0%}를 차지합니다. "
-            "비 오는 날이 여름에 몰려 있어서, 그냥 비교하면 '비 효과'에 '여름 효과'가 섞입니다. "
-            "그래서 이 대시보드는 같은 시기의 맑은 날과 비교하는 기준선을 씁니다.")
+    desc = _desc(f"한 해 비의 **{share:.0%}가 6~8월**에 몰려 있어, 그냥 비교하면 '비 효과'에 '여름 효과'가 섞입니다.",
+                 ("읽는 법", f"{yrs[0]}~{yrs[-1]}년 {len(yrs)}년 평균입니다. 선은 월 평균 기온, 띠는 하루 최저~최고 평균, 막대는 월 강수량 평균, 점은 해마다의 월 강수량입니다."),
+                 ("수치", f"가장 추운 달은 {cold_m}월({m.loc[cold_m, 'temp']:.1f}℃), 가장 더운 달은 {hot_m}월({m.loc[hot_m, 'temp']:.1f}℃), "
+                         f"비가 가장 많은 달은 {wet_m}월({m.loc[wet_m, 'precip']:,.0f}mm)입니다. 여름 강수량은 같은 달이라도 해마다 최대 {swing:.0f}배 차이가 납니다."),
+                 ("그래서", "이 대시보드는 **같은 시기의 맑은 날**과 비교하는 기준선을 씁니다."))
     return _out(fig, "png"), desc
 
 
@@ -402,10 +412,9 @@ def c_temp_hist():
     yrs = f"{_HOUR_WEATHER['date'].min()[:4]}~{_HOUR_WEATHER['date'].max()[:4]}"
     ax.set(title=f"{yrs}년 서울 시간별 기온 분포", xlabel="기온 (℃)", ylabel="시간 수")
     cold, hot = (t <= 0).mean(), (t > 28).mean()
-    desc = (f"지하철 운행 시간대 {len(t):,}개 시간의 기온을 1.5℃ 간격으로 센 히스토그램이고, 곡선은 분포를 부드럽게 그린 KDE입니다. "
-            f"평균 {t.mean():.1f}℃, 가장 낮은 {t.min():.1f}℃부터 가장 높은 {t.max():.1f}℃까지 퍼져 있습니다. "
-            f"0℃ 이하는 전체 시간의 {cold:.1%}, 28℃ 초과는 {hot:.1%}입니다. "
-            "분포가 영하부터 30℃대까지 넓게 퍼져 있어서, 기온은 평균 하나보다 구간(한파·보통·폭염)으로 나눠 영향을 보는 것이 맞습니다.")
+    desc = _desc(f"기온이 **{t.min():.1f}℃ ~ {t.max():.1f}℃**로 넓게 퍼져 있어, 평균 하나보다 구간(한파·보통·폭염)으로 나눠 봐야 합니다.",
+                 ("읽는 법", f"지하철 운행 시간대 {len(t):,}개 시간의 기온을 1.5℃ 간격으로 센 히스토그램이고, 곡선은 분포를 부드럽게 그린 KDE입니다."),
+                 ("수치", f"평균 {t.mean():.1f}℃이고, 0℃ 이하가 전체 시간의 {cold:.1%}, 28℃ 초과가 {hot:.1%}입니다."))
     return _out(fig, "png"), desc
 
 
@@ -417,9 +426,9 @@ def _box_verdict(med, iqr, order) -> str:
     gap = max((abs(med[k] - med[base]) for k in order[1:] if k in med.index), default=0.0)
     w = iqr[base]
     if gap <= w:
-        return (f"맑은 날끼리도 상자 폭이 {w:.1f}%p인데 날씨별 중앙값 차이는 가장 커도 {gap:.1f}%p라서, "
-                "날씨 때문에 생기는 차이가 평소 날마다 흔들림보다 작다는 것을 보여 줍니다.")
-    return (f"날씨별 중앙값 차이가 가장 큰 경우 {gap:.1f}%p로 맑은 날 상자 폭({w:.1f}%p)보다 커서, "
+        return (f"날씨별 중앙값 차이(최대 **{gap:.1f}%p**)가 맑은 날끼리의 흔들림(상자 폭 {w:.1f}%p)보다 작아서, "
+                "날씨 차이가 평소 날마다 흔들림에 묻힙니다.")
+    return (f"날씨별 중앙값 차이(최대 **{gap:.1f}%p**)가 맑은 날 상자 폭({w:.1f}%p)보다 커서, "
             "이 범위에서는 날씨 효과가 날마다 흔들림을 넘어섭니다.")
 
 
@@ -447,10 +456,10 @@ def c_weather_box(line, dtype):
     iqr = d.groupby("kind", observed=True)["pct"].quantile(.75) - d.groupby("kind", observed=True)["pct"].quantile(.25)
     short = dict(zip(order, ["맑음", "약한 비", "많은 비", "눈"]))
     parts = ", ".join(f"{short[k]} {med[k]:+.1f}%({n.get(k, 0)}일)" for k in order if k in med.index)
-    desc = (f"하루 이용량을 같은 시기 맑은 날 기준선과 비교한 값(%)의 상자그림입니다. 상자는 가운데 50%, 가운데 선은 중앙값입니다. "
-            f"중앙값은 {parts}입니다. "
-            + _box_verdict(med, iqr, order) + " 눈·많은 비는 날짜 수가 적어 해석에 주의해야 합니다."
-            + (f" (연휴 앞뒤처럼 극단적인 {cut}일은 세로축 밖이라 생략했습니다.)" if cut else ""))
+    desc = _desc(_box_verdict(med, iqr, order),
+                 ("읽는 법", f"하루 이용량을 같은 시기 맑은 날 기준선과 비교한 값(%)입니다. 상자는 가운데 50%, 가운데 선은 중앙값이며, 중앙값은 {parts}입니다."),
+                 ("주의", "눈·많은 비는 날짜 수가 적습니다."
+                         + (f" 연휴 앞뒤처럼 극단적인 {cut}일은 세로축 밖이라 생략했습니다." if cut else "")))
     return _out(fig, "png"), desc
 
 
@@ -529,12 +538,11 @@ def c_factor_size():
     ax.set(title="하루 이용량을 바꾸는 요인 — 같은 요일 보통날 대비 (1~8호선 전체)", xlabel="평균 변화 (%, 선=95% 신뢰구간)")
     big = r.set_index("cat")
     wmax = big.loc[wx, "m"].abs().max()
-    desc = (f"각 날의 하루 이용량을 같은 요일 앞뒤 4주의 보통날(공휴일·징검다리·근로자의 날·비·눈이 아닌 날) 중앙값과 비교했습니다. "
-            f"빨간 막대(달력)는 설·추석 연휴 {big.loc[cal[0], 'm']:+.0f}%, 그 밖의 공휴일 {big.loc[cal[1], 'm']:+.0f}%, "
-            f"근로자의 날 {big.loc[cal[2], 'm']:+.0f}%, 징검다리 평일 {big.loc[cal[3], 'm']:+.0f}%로 줄고, "
-            f"파란 막대(날씨)는 가장 큰 것도 {wmax:.1f}% 안팎입니다. "
-            f"지하철 이용량을 가장 크게 흔드는 것은 날씨가 아니라 '그날 출근·등교를 하느냐'입니다. "
-            "날씨 효과가 작은 것은 실패가 아니라, 지하철 이동 대부분이 날씨와 상관없이 해야 하는 이동이라는 결과입니다.")
+    desc = _desc(f"이용량을 크게 흔드는 것은 날씨(최대 {wmax:.1f}%)가 아니라 **'그날 출근·등교를 하느냐'**입니다.",
+                 ("읽는 법", "각 날의 하루 이용량을 같은 요일 앞뒤 4주 보통날(공휴일·징검다리·근로자의 날·비·눈이 아닌 날) 중앙값과 비교했습니다. 빨강은 달력, 파랑은 날씨입니다."),
+                 ("수치", f"설·추석 연휴 **{big.loc[cal[0], 'm']:+.0f}%**, 그 밖의 공휴일 **{big.loc[cal[1], 'm']:+.0f}%**, "
+                         f"근로자의 날 {big.loc[cal[2], 'm']:+.0f}%, 징검다리 평일 {big.loc[cal[3], 'm']:+.0f}%입니다. 날씨는 가장 큰 것도 {wmax:.1f}% 안팎입니다."),
+                 ("해석", "날씨 효과가 작은 것은 실패가 아니라, 지하철 이동 대부분이 날씨와 상관없이 해야 하는 이동이라는 결과입니다."))
     return _out(fig, "png"), desc
 
 
@@ -569,18 +577,27 @@ def c_station_spikes():
     ax.set(title="평소보다 가장 붐빈 날 — 역별 1위 (같은 요일 대비)", xlabel="같은 요일 앞뒤 4주 중앙값 대비 (배)")
     ax.set_xlim(0, top["r"].max() * 1.15)
     first = top.iloc[0]
-    desc = (f"역마다 하루 이용량을 같은 요일 앞뒤 4주 중앙값과 비교해, 가장 크게 튄 날을 역별로 하나씩 뽑은 상위 10곳입니다(하루 평균 5천 명 이상 역). "
-            f"1위는 {first['station']}({first['line']}) {first['date']}로 평소의 {first['r']:.1f}배입니다. "
-            + (f"{many.index[0][1]}역은 평소의 3배 이상인 날이 {many.iloc[0]}일이나 됩니다. " if len(many) else "")
-            + "경기장·한강공원 근처 역이 많아, 경기·공연·축제 같은 행사가 원인으로 추정됩니다(날짜별 행사는 별도 확인 필요). "
-            "노선 전체로 보면 날씨 효과는 몇 %지만, 역 하나만 보면 행사 하나가 이용량을 몇 배로 바꿉니다.")
+    desc = _desc("노선 전체로는 날씨 효과가 몇 %지만, 역 하나만 보면 **행사 하나가 이용량을 몇 배로** 바꿉니다.",
+                 ("읽는 법", "역마다 하루 이용량을 같은 요일 앞뒤 4주 중앙값과 비교해, 가장 크게 튄 날을 하나씩 뽑은 상위 10곳입니다(하루 평균 5천 명 이상 역)."),
+                 ("수치", f"1위는 {first['station']}({first['line']}) {first['date']}로 **평소의 {first['r']:.1f}배**입니다."
+                         + (f" {many.index[0][1]}역은 평소의 3배 이상인 날이 {many.iloc[0]}일입니다." if len(many) else "")),
+                 ("주의", "경기장·한강공원 근처 역이 많아 경기·공연·축제가 원인으로 추정되지만, 날짜별 행사는 따로 확인해야 합니다."))
     return _out(fig, "png"), desc
 
 
 # ---------- 조립 ----------
 def _card(cid, title, fn, *args):
     html, desc = fn(*args)
-    return {"id": cid, "title": title, "html": html, "desc": desc}
+    return {"id": cid, "title": title, "html": html, "desc": _render_desc(desc)}
+
+
+def _md(text: str) -> Markup:
+    """문장을 HTML로 이스케이프한 뒤 **굵게**만 <b>로 바꾼다."""
+    return Markup(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(escape(text))))
+
+
+def _render_desc(d: dict) -> dict:
+    return {"key": _md(d["key"]), "paras": [(lab, _md(txt)) for lab, txt in d["paras"]]}
 
 
 @lru_cache(maxsize=64)
