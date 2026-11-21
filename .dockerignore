@@ -3,3 +3,5 @@ __pycache__/
 .git/
 report/
 *.pdf
+data/raw/
+site/

@@ -1,4 +1,4 @@
-"""날씨가 서울 지하철 이용량에 미치는 영향 — Flask + matplotlib/seaborn + mpld3 대시보드.
+"""날씨는 서울 시민의 이동을 어떻게 바꾸는가(지하철·버스·따릉이) — Flask + matplotlib/seaborn + mpld3 대시보드.
 
 분석·보정 계수는 analysis.py, 그래프는 charts.py, 여기서는 날씨 예보 → 오늘의 예측과 웹 라우트를 맡는다.
 실행: python app.py  →  http://127.0.0.1:5000

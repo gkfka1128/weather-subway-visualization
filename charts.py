@@ -1,4 +1,4 @@
-"""대시보드 그래프 16개 + 오늘 예측 그래프. 설명 문장의 숫자는 그때그때 데이터에서 계산한다."""
+"""대시보드 그래프 23개 + 오늘 예측 그래프. 설명 문장의 숫자는 그때그때 데이터에서 계산한다."""
 import base64
 import io
 import re
@@ -18,8 +18,11 @@ from markupsafe import Markup, escape
 from analysis import (_HOUR_WEATHER, CUT, DF, LINES, ROOT, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAYS, backtest, group_stats,
                       make_t, t_for)
 
+import mobility as mob
 from matplotlib import font_manager as _fm
 from matplotlib.colors import to_rgba
+from matplotlib.ticker import FuncFormatter
+import matplotlib.patheffects as pe
 
 # Windows는 맑은 고딕, Docker(리눅스)는 나눔고딕 — 실제로 설치된 첫 한글 폰트를 쓴다.
 _installed = {f.name for f in _fm.fontManager.ttflist}
@@ -464,24 +467,11 @@ def c_weather_box(line, dtype):
 
 
 # ---------- 다른 요인과 비교 (달력·행사) ----------
-HOLIDAYS = pd.read_csv(ROOT / "data" / "holidays.csv").set_index("date")["name"].to_dict()
-T95 = {2: 12.71, 3: 4.30, 4: 3.18, 5: 2.78, 6: 2.57, 7: 2.45, 8: 2.36, 9: 2.31, 10: 2.26, 15: 2.14, 20: 2.09, 30: 2.05}
-
-
-def _t95(n: int) -> float:
-    """표본 n개의 95% 신뢰구간 t값 (scipy 없이 근사표)."""
-    return next((v for k, v in sorted(T95.items()) if n <= k), 1.96)
+# 공휴일 목록·신뢰구간 t값·같은 요일 기준선은 교통수단 비교(mobility.py)와 같은 것을 쓴다
+HOLIDAYS = mob.HOLIDAYS
+_t95 = mob.t95
+_same_weekday_base = mob.same_weekday_base
 DOW = "월화수목금토일"
-
-
-def _same_weekday_base(values: pd.Series, skip: pd.Series, k: int = 4) -> pd.Series:
-    """같은 요일 앞뒤 k주(자기 자신·skip인 날 제외, 보통날 3일 이상)의 중앙값. values는 같은 요일끼리 날짜순으로 정렬돼 있어야 한다."""
-    v = values.where(~skip)
-
-    def med(k):
-        nb = pd.concat([v.shift(i) for i in range(-k, k + 1) if i], axis=1)
-        return nb.median(axis=1).where(nb.notna().sum(axis=1) >= 3)
-    return med(k).fillna(med(2 * k))  # 연말·연휴가 몰린 때는 보통날이 모자라 앞뒤 8주로 넓힌다
 
 
 @lru_cache(maxsize=1)
@@ -585,6 +575,230 @@ def c_station_spikes():
     return _out(fig, "png"), desc
 
 
+# ---------- 다른 교통수단·역 성격 (mobility.py) ----------
+MODE_COLORS = {"지하철": "#0f6b5c", "버스": C_BLUE, "따릉이": C_ORANGE,
+               "따릉이 정기권": "#a35a1c", "따릉이 일일권": "#e0a35f"}
+TYPE_COLORS = {"업무지구": "#2f5d8a", "혼합": "#a9a59b", "주거지": "#3d7a4f", "여가·상업": "#c8742b"}
+
+
+def _trips() -> pd.DataFrame:
+    """수단별 하루 이동 건수: 지하철·버스는 승차+하차의 절반(승차 기준), 따릉이는 대여 건수."""
+    m = mob.modes()[["지하철", "버스", "따릉이"]].copy()
+    m[["지하철", "버스"]] /= 2
+    m.index = pd.to_datetime(m.index)
+    return m
+
+
+def c_mode_month():
+    m = _trips()
+    mon = m.resample("MS").mean()
+    idx = mon / mon.mean() * 100
+    fig, ax = plt.subplots(figsize=(9, 3.8))
+    for c in idx:
+        ax.plot(idx.index, idx[c], marker="o", ms=3.5, lw=2, color=MODE_COLORS[c], label=c)
+    ax.axhline(100, color=C_GRAY, ls="--", lw=1)
+    ax.set(title="교통수단별 월별 하루 이용 (각 수단의 3년 평균 = 100)", ylabel="이용 지수")
+    ax.legend(ncol=3, fontsize=9, loc="lower center")
+    rng = (idx.max() - idx.min()).round(0)
+    avg = m.mean() / 1e4
+    bk = idx["따릉이"]
+    by_m = bk.groupby(bk.index.month).mean()
+    desc = _desc(f"달마다 이용 수준의 차이(최고−최저)가 지하철 {rng['지하철']:.0f}·버스 {rng['버스']:.0f}포인트인데, 따릉이는 **{rng['따릉이']:.0f}포인트**로 약 {rng['따릉이'] / rng[['지하철', '버스']].mean():.0f}배입니다.",
+                 ("읽는 법", "달마다 하루 평균 이동 건수를 각 수단의 3년 평균과 비교한 지수입니다(100 = 평균). 규모가 크게 달라 지수로 맞췄습니다. "
+                            f"하루 평균은 지하철 약 {avg['지하철']:.0f}만, 버스 {avg['버스']:.0f}만(둘 다 승차 기준), 따릉이 {avg['따릉이']:.0f}만 건입니다."),
+                 ("수치", f"따릉이는 평균적으로 {by_m.idxmax()}월이 가장 많고({by_m.max():.0f}) {by_m.idxmin()}월이 가장 적습니다({by_m.min():.0f}). 2024년 4월은 지하철 원본 오류로 빠져 있습니다."),
+                 ("왜 보나", "날씨를 그대로 맞는 수단일수록 계절을 탑니다. 이 차이가 아래 **질문 ②(교통수단 대비)**의 출발점입니다."))
+    return _out(fig, "html"), desc
+
+
+def c_mode_week():
+    m = _trips()
+    g = mob.days().reindex(m.index)
+    m = m[g["hol"].isna() & ~g["labor"] & ~g["bridge"]]  # 공휴일·징검다리 빼고 요일 모양만
+    wk = m.groupby(m.index.weekday).mean()
+    idx = wk / wk.loc[0:4].mean() * 100
+    fig, ax = plt.subplots(figsize=(7.5, 3.8))
+    w = .26
+    for i, c in enumerate(idx):
+        ax.bar(np.arange(7) + (i - 1) * w, idx[c], w, color=MODE_COLORS[c], label=c, alpha=.9)
+    ax.set_xticks(range(7))
+    ax.set_xticklabels([f"{d}요일" for d in DOW])
+    ax.axhline(100, color="#55534e", lw=.8)
+    ax.set(title="요일별 하루 이용 (각 수단의 평일 평균 = 100)", ylabel="이용 지수", ylim=(0, max(125, idx.max().max() + 10)))
+    ax.legend(ncol=3, fontsize=9, loc="upper left")
+    sun = idx.loc[6]
+    desc = _desc(f"일요일 이용은 평일의 지하철 **{sun['지하철']:.0f}%**, 버스 {sun['버스']:.0f}%, 따릉이 **{sun['따릉이']:.0f}%**입니다. 따릉이는 주말에도 덜 줄어 **여가 이동 비중이 큽니다**.",
+                 ("읽는 법", "공휴일·징검다리를 뺀 날의 요일별 하루 평균을, 수단마다 평일(월~금) 평균 = 100으로 맞춘 지수입니다."),
+                 ("왜 보나", "지하철·버스는 평일(출퇴근·통학) 중심의 수단이라는 점을 먼저 확인합니다. 아래 **질문 ③**에서 이 '필수 이동'이 날씨에 잘 흔들리지 않는다는 것을 봅니다."))
+    return _out(fig, "html"), desc
+
+
+def c_modes():
+    r = mob.mode_table()
+    cats, modes = mob.WX_CATS, ["지하철", "버스", "따릉이"]
+    fig, ax = plt.subplots(figsize=(9.5, 4.2))
+    w = .26
+    for i, m in enumerate(modes):
+        s = r[r["mode"] == m].set_index("wx").reindex(cats)
+        x = np.arange(len(cats)) + (i - 1) * w
+        ax.bar(x, s["m"], w, yerr=s["ci"], color=MODE_COLORS[m], label=m, alpha=.9,
+               error_kw={"ecolor": "#55534e", "lw": .8, "capsize": 2})
+    n = r.drop_duplicates("wx").set_index("wx")["n"].reindex(cats)
+    ax.set_xticks(range(len(cats)))
+    ax.set_xticklabels([f"{c}\n({int(k)}일)" for c, k in zip(cats, n)], fontsize=8.5)
+    ax.axhline(0, color="#55534e", lw=.8)
+    ax.set(title="같은 날씨, 다른 반응 — 교통수단별 평일 이용 변화 (같은 요일 보통날 대비)", ylabel="평균 변화 (%, 선=95% 신뢰구간)")
+    ax.set_ylim(top=max(18, float((r["m"] + r["ci"]).max()) + 4))
+    ax.legend(ncol=3, fontsize=9, loc="upper left")
+    t = r.set_index(["wx", "mode"])["m"]
+    heavy = "많은 비 (10mm↑)"
+    desc = _desc(f"많은 비가 오는 평일, 따릉이는 **{t[(heavy, '따릉이')]:+.0f}%**로 급감하지만 지하철은 **{t[(heavy, '지하철')]:+.1f}%**, 버스는 {t[(heavy, '버스')]:+.1f}%에 그칩니다.",
+                 ("읽는 법", "평일(공휴일·징검다리 제외) 하루 이용량을 같은 요일 앞뒤 4주 '맑은 보통날' 중앙값과 비교했습니다. 세 수단 모두 **같은 방법·같은 날짜**로 계산했습니다."),
+                 ("수치", f"약한 비 지하철 {t[('약한 비', '지하철')]:+.1f}% · 따릉이 {t[('약한 비', '따릉이')]:+.0f}%, "
+                         f"눈 지하철 {t[('눈', '지하철')]:+.1f}% · 따릉이 {t[('눈', '따릉이')]:+.0f}%, "
+                         f"미세먼지 나쁨 지하철 {t[('미세먼지 나쁨', '지하철')]:+.1f}% · 따릉이 {t[('미세먼지 나쁨', '따릉이')]:+.0f}%."),
+                 ("해석", "날씨에 그대로 노출되는 자전거는 크게 줄고, 지붕이 있는 지하철·버스는 거의 그대로입니다. "
+                         "**지하철의 작은 감소는 '날씨 영향이 없다'가 아니라 '날씨를 피할 수 있는 수단'이라는 뜻**입니다."),
+                 ("자료", "버스: 서울시 버스 정류장별 일별 승하차(서울 열린데이터광장), 따릉이: 공공자전거 이용정보(일별), "
+                         "미세먼지: 서울시 일별 평균 대기오염도(25개 구 측정소 평균, PM10 81↑ 또는 PM2.5 36↑을 '나쁨'으로)."))
+    return _out(fig, "png"), desc
+
+
+def c_dumbbell():
+    e = mob.mode_effects()
+    g = mob.days().reindex(e.index)
+    wet = g["wx"].isin(mob.WX_CATS[:2])
+    wk, we = g["plain"] & (g["wd"] < 5), g["plain"] & (g["wd"] >= 5)
+    order = ["지하철", "버스", "따릉이 정기권", "따릉이 일일권"]
+    a = [e.loc[wet & wk, m].mean() for m in order]
+    b = [e.loc[wet & we, m].mean() for m in order]
+    fig, ax = plt.subplots(figsize=(7.5, 3.6))
+    y = np.arange(len(order))[::-1]
+    for yy, x0, x1 in zip(y, a, b):
+        ax.plot([x0, x1], [yy, yy], color="#cfcac0", lw=3, zorder=1)
+    ax.scatter(a, y, s=70, color="#0f6b5c", label="평일", zorder=2)
+    ax.scatter(b, y, s=70, color=C_ORANGE, label="주말", zorder=2)
+    for yy, x0, x1 in zip(y, a, b):  # 더 작은(왼쪽) 값은 점 왼쪽에, 큰 값은 점 오른쪽에 적어 겹치지 않게
+        for x, col in ((x0, "#0f6b5c"), (x1, C_ORANGE)):
+            left = x == min(x0, x1)
+            ax.text(x + (-.7 if left else .7), yy, f"{x:+.1f}%", fontsize=8.5, color=col,
+                    ha="right" if left else "left", va="center")
+    ax.set_yticks(y)
+    ax.set_yticklabels(order)
+    ax.axvline(0, color="#55534e", lw=.8)
+    ax.set(title="비 오는 날 변화: 평일 vs 주말 (같은 요일 보통날 대비)", xlabel="평균 변화 (%)",
+           xlim=(min(a + b) - 6, 2.5), ylim=(-.6, len(order) - .4))
+    ax.legend(fontsize=9, loc="upper left", ncol=2)
+    d = dict(zip(order, zip(a, b)))
+    n_wk, n_we = int((wet & wk).sum()), int((wet & we).sum())
+    desc = _desc(f"같은 비라도 **주말에 더 많이 줄어듭니다** — 지하철 평일 {d['지하철'][0]:+.1f}% → 주말 {d['지하철'][1]:+.1f}%.",
+                 ("읽는 법", f"점 두 개 사이가 멀수록 '꼭 가야 하는 이동(평일)'과 '안 가도 되는 이동(주말)'의 차이가 큽니다. 비 오는 평일 {n_wk}일, 주말 {n_we}일(공휴일 제외)."),
+                 ("수치", f"따릉이 정기권(반복 이용 → 출퇴근·통학) 평일 {d['따릉이 정기권'][0]:+.0f}% · 주말 {d['따릉이 정기권'][1]:+.0f}%, "
+                         f"일일권(가끔 타는 이용) 평일 {d['따릉이 일일권'][0]:+.0f}% · 주말 {d['따릉이 일일권'][1]:+.0f}%. 자전거는 비를 그대로 맞아 평일에도 크게 줄어듭니다."),
+                 ("해석", "평일 출퇴근은 날씨와 상관없이 해야 하는 **필수 이동**이라 거의 줄지 않고, 주말 나들이 같은 **선택 이동**이 날씨에 따라 취소됩니다. "
+                         "지하철 이용 대부분이 필수 이동이라 전체 효과가 작게 나옵니다."))
+    return _out(fig, "png"), desc
+
+
+def c_station_map():
+    info = mob.station_info().dropna(subset=["lat"])
+    info = info[(info["lat"].between(37.4, 37.72)) & (info["lon"].between(126.75, 127.2))]  # 서울 밖 몇 역 제외
+    fig, ax = plt.subplots(figsize=(7.5, 5.6))
+    for t in mob.TYPES:
+        s = info[info["type"] == t]
+        ax.scatter(s["lon"], s["lat"], s=np.sqrt(s["wd_daily"]) / 2.2, color=TYPE_COLORS[t], alpha=.75,
+                   edgecolor="white", lw=.5, label=f"{t} ({len(s)})")
+    # 강남 일대는 큰 역이 몰려 있어 상위 N개를 다 적으면 겹친다 → 지역별 대표 역만 적는다
+    for name in ("서울", "강남", "홍대입구", "잠실", "구로디지털단지", "노원", "여의도", "수유", "김포공항"):
+        r = info[info["station"] == name]
+        if len(r):
+            ax.annotate(name, (r["lon"].iat[0], r["lat"].iat[0]), xytext=(5, 4), textcoords="offset points", fontsize=8.5,
+                        path_effects=[pe.withStroke(linewidth=2.5, foreground="white")])
+    ax.set_aspect(1 / np.cos(np.radians(37.55)))
+    ax.set(title="서울 지하철역 성격 지도 (원 크기 = 평일 하루 이용량)", xlabel="경도", ylabel="위도")
+    ax.legend(fontsize=8.5, loc="lower right", markerscale=.6)
+    cnt = info["type"].value_counts()
+    desc = _desc("평일 아침 승하차 방향과 주말 이용 비율만으로 역을 나누면, **업무지구는 도심·강남에, 주거지는 외곽에** 모입니다.",
+                 ("읽는 법", "점 하나가 역 하나이고 위치는 실제 좌표(서울시 역사마스터 정보)입니다. 원이 클수록 평일 이용량이 많습니다."),
+                 ("분류 기준", "평일 7~9시 하차가 승차의 2배 이상이면 **업무지구**(일하러 오는 역), 승차가 하차의 2배 이상이면 **주거지**(집에서 나가는 역), "
+                              "주말 하루 이용이 평일의 75% 이상이면 **여가·상업**, 나머지는 혼합입니다."),
+                 ("수치", ", ".join(f"{t} {cnt.get(t, 0)}곳" for t in mob.TYPES) + ". 이름은 데이터로 붙인 것이라 실제 용도와 다를 수 있습니다."))
+    return _out(fig, "png"), desc
+
+
+def c_type_rain():
+    r = mob.type_table()
+    fig, ax = plt.subplots(figsize=(7.5, 3.8))
+    w = .38
+    for i, (lab, col) in enumerate((("평일", "#0f6b5c"), ("주말", C_ORANGE))):
+        s = r[r["day"] == lab].set_index("type").reindex(mob.TYPES)
+        ax.bar(np.arange(len(mob.TYPES)) + (i - .5) * w, s["m"], w, yerr=s["ci"], color=col, label=lab, alpha=.9,
+               error_kw={"ecolor": "#55534e", "lw": .8, "capsize": 3})
+    ax.set_xticks(range(len(mob.TYPES)))
+    ax.set_xticklabels(mob.TYPES)
+    ax.axhline(0, color="#55534e", lw=.8)
+    ax.set(title="역 성격별 비 오는 날 이용 변화 (같은 요일 보통날 대비)", ylabel="평균 변화 (%, 선=95% 신뢰구간)")
+    ax.set_ylim(top=max(2.2, float((r["m"] + r["ci"]).max()) + 1))
+    ax.legend(fontsize=9, loc="upper right", ncol=2)
+    t = r.set_index(["type", "day"])["m"]
+    wk = t.xs("평일", level="day")
+    we = t.xs("주말", level="day")
+    desc = _desc(f"평일에는 역 성격과 상관없이 {wk.min():+.1f}~{wk.max():+.1f}%로 비슷하지만, 주말에는 **{we.idxmin()} {we.min():+.1f}%**로 가장 크게 줄어듭니다.",
+                 ("읽는 법", "같은 성격의 역들을 합친 하루 이용량을 같은 요일 앞뒤 4주 맑은 보통날과 비교했습니다. 비 = 하루 강수 0.1mm 초과(눈 오는 날 제외)."),
+                 ("해석", "평일에는 어디서 타든 출퇴근이라 차이가 작습니다. "
+                         + (f"주말에 업무지구 역이 가장 많이 줄어드는 것은, 쉬는 날 도심·강남에 가는 이동(쇼핑·약속)이 비 오는 날 미루기 쉬운 이동이기 때문으로 보입니다."
+                            if we.idxmin() == "업무지구" else f"주말에는 {we.idxmin()} 역이 가장 많이 줄어듭니다.")
+                         + (f" 여가·상업 역({we['여가·상업']:+.1f}%)은 실내 상권·행사가 있어 상대적으로 덜 줄어듭니다." if we.idxmax() == "여가·상업" else "")),
+                 ("주의", f"역 성격은 위 지도의 데이터 기준 분류입니다. 여가·상업 역은 {int((mob.station_info()['type'] == '여가·상업').sum())}곳으로 적습니다."))
+    return _out(fig, "png"), desc
+
+
+def c_transfer():
+    lost = mob.lost_trips()
+    s = mob.station_rain()
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(10.5, 4.2), gridspec_kw={"width_ratios": [1, 1.25]})
+    cats, modes = mob.WX_CATS[:2], ["지하철", "버스", "따릉이"]
+    y = np.arange(len(modes))[::-1]
+    for i, (c, col) in enumerate(zip(cats, ("#7fa3c6", C_BLUE))):
+        a1.barh(y + (i - .5) * .38, [lost.loc[c, m] for m in modes], .38, color=col, label=c)
+    a1.set_yticks(y)
+    a1.set_yticklabels(modes)
+    a1.axvline(0, color="#55534e", lw=.8)
+    a1.set(title="① 비 오는 평일에 줄어든 이동 (하루, 만 건)", xlabel="보통날 대비 증감 (만 건)")
+    a1.legend(fontsize=8, loc="lower left")
+    for t in mob.TYPES:
+        x = s[s["type"] == t]
+        a2.scatter(x["bike_share"], x["sub_rain"], s=np.sqrt(x["use"]) / 3, color=TYPE_COLORS[t], alpha=.7,
+                   edgecolor="white", lw=.5, label=t)
+    xs = np.log10(s["bike_share"])
+    k, b0 = np.polyfit(xs, s["sub_rain"], 1)
+    gx = np.linspace(xs.min(), xs.max(), 50)
+    a2.plot(10 ** gx, k * gx + b0, color=C_RED, lw=1.6, label="추세선")
+    a2.set_xscale("log")
+    a2.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))  # 10^-1 같은 수식 눈금 대신 0.1
+    a2.axhline(0, color="#55534e", lw=.8)
+    a2.set(title="② 역 주변 따릉이 비율 vs 비 오는 평일 지하철 변화", xlabel="역 300m 안 따릉이 대여 ÷ 지하철 이용 (%, 로그)",
+           ylabel="지하철 변화 (%)")
+    a2.legend(fontsize=7.5, ncol=3, loc="lower right")
+    fig.tight_layout()
+    r = np.corrcoef(xs, s["sub_rain"])[0, 1]
+    h = mob.WX_CATS[1]
+    tot = sum(lost.loc[h, m] for m in modes)
+    all_down = all(lost.loc[h, m] < 0 for m in modes)
+    share_max = s["bike_share"].quantile(.9)
+    desc = _desc((f"비 오는 날 자전거에서 빠진 사람이 지하철로 옮겨 탄 흔적은 **보이지 않습니다** — 세 수단이 **모두** 줄어, 많은 비 오는 평일 하루 약 **{-tot:.0f}만 건**의 이동이 사라집니다."
+                  if all_down and abs(r) < .2 else
+                  f"많은 비 오는 평일, 세 수단 합계로 하루 약 {-tot:.0f}만 건의 이동이 바뀝니다(역 단위 r = {r:+.2f})."),
+                 ("읽는 법", "① 수단별로 '보통날이었다면'의 값과 실제 값의 차이(지하철·버스는 승차 인원, 따릉이는 대여 건수). "
+                            f"② 점 하나가 역 하나({len(s)}곳)이고, 자전거를 많이 타는 동네의 역일수록 비 오는 날 지하철이 덜 줄어드는지(=옮겨 타는지) 본 것입니다."),
+                 ("수치", f"많은 비: 지하철 {lost.loc[h, '지하철']:+.0f}만, 버스 {lost.loc[h, '버스']:+.0f}만, 따릉이 {lost.loc[h, '따릉이']:+.1f}만 건. "
+                         f"② 상관계수 r = {r:+.2f}. 역 주변 따릉이는 지하철 이용의 중앙값 {s['bike_share'].median():.2f}%에 불과합니다."),
+                 ("해석", f"역 주변 따릉이 대여는 지하철 이용의 상위 10% 역에서도 {share_max:.1f}% 수준이라, 다 옮겨 타도 지하철 숫자는 거의 변하지 않습니다. "
+                         "줄어든 이동은 다른 수단으로 옮겨 갔다기보다 **미뤄지거나 취소된 이동**(또는 자료에 없는 택시·자가용)으로 보는 것이 맞습니다."),
+                 ("주의", "택시·자가용 자료는 없어 확인하지 못했습니다. 대여소 위치는 2025년 12월 기준입니다."))
+    return _out(fig, "png"), desc
+
+
 # ---------- 조립 ----------
 def _card(cid, title, fn, *args):
     html, desc = fn(*args)
@@ -604,28 +818,36 @@ def _render_desc(d: dict) -> dict:
 def sections(line: str = "전체", dtype: str = "전체"):
     with _lock:
         return [
-            {"title": "1. 데이터 개요 — 이용량은 언제, 어디서, 누가 많이 타는가", "cards": [
+            {"tab": "데이터 개요", "title": "1. 데이터 개요 — 서울 시민은 언제, 무엇을 타고 이동하는가", "cards": [
+                _card("mode-month", "교통수단별 월별 이용 추이", c_mode_month),
+                _card("mode-week", "교통수단별 요일 패턴", c_mode_week),
                 _card("heatmap", "요일×시간대 이용량", c_heat, line, dtype),
                 _card("lines", "호선별 하루 평균 이용량", c_lines, line, dtype),
                 _card("stations", "이용량 많은 역 Top 15", c_station, line, dtype),
                 _card("ptype", "승객 유형별 시간대 구성", c_ptype_share)]},
-            {"title": "2. 2023~2025년 서울의 날씨 — 무엇과 비교하는가", "cards": [
+            {"tab": "서울의 날씨", "title": "2. 2023~2025년 서울의 날씨 — 무엇과 비교하는가", "cards": [
                 _card("wmonth", "월별 기온과 강수량", c_weather_month),
                 _card("thist", "시간별 기온 분포", c_temp_hist)]},
-            {"title": "3. 날씨와 이용량의 관계 — 상관관계가 있는가", "cards": [
+            {"tab": "질문① 지하철", "title": "3. 질문 ① 날씨가 나쁘면 지하철을 덜 타는가 — 상관과 크기", "cards": [
                 _card("corr", "상관계수 히트맵", c_corr, line, dtype),
                 _card("scatter", "기온과 이용량 (보정 전·후)", c_scatter, line, dtype),
                 _card("wbox", "날씨 유형별 하루 이용량 분포", c_weather_box, line, dtype),
-                _card("commute", "출퇴근 시간대: 맑음 vs 비·눈", c_rain_commute, line, dtype)]},
-            {"title": "4. 영향의 크기 — 얼마나, 누구에게", "cards": [
-                _card("factors", "날씨 구간별 영향 (신뢰구간)", c_factors, line, dtype),
+                _card("factors", "날씨 구간별 영향 (신뢰구간)", c_factors, line, dtype)]},
+            {"tab": "질문② 수단 비교", "title": "4. 질문 ② 다른 교통수단은 어떤가 — 지하철·버스·따릉이 대비", "cards": [
+                _card("modes", "교통수단별 날씨 반응 (미세먼지 포함)", c_modes),
+                _card("transfer", "줄어든 이동은 어디로 갔나", c_transfer)]},
+            {"tab": "질문③ 누가·어디서", "title": "5. 질문 ③ 누가, 어디서 줄이는가 — 필수 이동과 선택 이동", "cards": [
+                _card("dumbbell", "평일 vs 주말: 같은 비, 다른 반응", c_dumbbell),
+                _card("commute", "출퇴근 시간대: 맑음 vs 비·눈", c_rain_commute, line, dtype),
+                _card("station-map", "역 성격 지도", c_station_map),
+                _card("type-rain", "역 성격별 비 오는 날 변화", c_type_rain),
                 _card("ptype-rain", "승객 유형별 반응", c_ptype_rain),
                 _card("line-rain", "호선별 반응", c_line_rain)]},
-            {"title": "5. 예측과 검증 — 믿을 만한가", "cards": [
-                _card("backtest", "백테스트: 실제 vs 예측", c_backtest)]},
-            {"title": "6. 다른 요인과 비교 — 날씨는 얼마나 큰가", "cards": [
+            {"tab": "다른 요인", "title": "6. 다른 요인과 비교 — 날씨는 얼마나 큰가", "cards": [
                 _card("factor-size", "하루 이용량을 바꾸는 요인 크기", c_factor_size),
                 _card("spikes", "역 단위로 보면: 평소보다 가장 붐빈 날", c_station_spikes)]},
+            {"tab": "예측 검증", "title": "7. 그래서 — 예측하고 검증한다", "cards": [
+                _card("backtest", "백테스트: 실제 vs 예측", c_backtest)]},
         ]
 
 
@@ -640,11 +862,14 @@ def headline():
     d = _daily(t)
     r = max((d["ratio"].corr(d[c]) for c in WEATHER_LABELS), key=abs)
     _, m, _, _ = backtest()
+    mt = mob.mode_table().set_index(["wx", "mode"])["m"]
+    bike = mt[("많은 비 (10mm↑)", "따릉이")]
     return [
-        {"value": _pct(rain), "label": "비 오는 날 이용량", "icon": "rain", "tone": "rain"},
-        {"value": _pct(snow), "label": "눈 오는 날 이용량", "icon": "snow", "tone": "snow"},
-        {"value": f"{_pct(cold)} / {_pct(hot)}", "label": "한파(0℃↓) / 폭염(28℃↑)", "icon": "thermo", "tone": "temp"},
-        {"value": f"|r| ≤ {abs(r):.2f}", "label": "날씨와 하루 이용량의 상관계수", "icon": "scatter", "tone": "corr"},
+        {"value": _pct(rain), "label": "비 오는 날 지하철", "icon": "rain", "tone": "rain"},
+        {"value": _pct(snow), "label": "눈 오는 날 지하철", "icon": "snow", "tone": "snow"},
+        {"value": f"{bike:+.0f}%", "label": "많은 비 오는 평일 따릉이", "icon": "bike", "tone": "bike"},
+        {"value": f"{_pct(cold)} / {_pct(hot)}", "label": "한파(0℃↓) / 폭염(28℃↑) 지하철", "icon": "thermo", "tone": "temp"},
+        {"value": f"|r| ≤ {abs(r):.2f}", "label": "날씨와 지하철 하루 이용량의 상관계수", "icon": "scatter", "tone": "corr"},
     ]
 
 

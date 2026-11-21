@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>날씨와 서울 지하철</title>
+  <title>날씨와 서울의 이동</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css">
   <link rel="stylesheet" href="{{ css_href or url_for('static', filename='style.css') }}">
 </head>
 <body>
   <header>
-    <p class="kicker">서울 지하철 × 날씨 · 2023~2025년 3년치 분석</p>
-    <h1>날씨가 서울 지하철 이용량에 미치는 영향</h1>
-    <p class="sub">서울교통공사 1~8호선 시간대별 승하차 인원과 Open-Meteo 시간별 날씨를 합쳐, 날씨가 이용량에 미치는 영향을 요일·시간대별로 봤습니다.</p>
+    <p class="kicker">지하철 · 버스 · 따릉이 × 날씨 · 2023~2025년 3년치 분석</p>
+    <h1>날씨는 서울 시민의 이동을 어떻게 바꾸는가</h1>
+    <p class="sub">서울 지하철(1~8호선 시간대별 승하차)·시내버스(정류장별 승하차)·공공자전거 따릉이(대여소별 대여) 3년치를 시간별 날씨·미세먼지·역 위치와 엮어
+      <b>날씨가 나쁘면 지하철을 덜 타는가 → 다른 수단은 어떤가 → 누가, 어디서 줄이는가</b>를 차례로 따라갑니다.</p>
   </header>
 
   <main>
@@ -21,7 +22,7 @@
     <section class="overview" aria-labelledby="ov-title">
       <div class="ov-head">
         <h2 id="ov-title">전체 데이터 요약</h2>
-        <p>2023~2025년 3년 · 1~8호선 전체 · 평소(같은 시기 무강수일) 대비. <b>아래에서 호선·요일을 바꿔도 이 숫자는 그대로입니다.</b></p>
+        <p>2023~2025년 3년 · 지하철은 1~8호선 전체 · 평소(같은 시기 맑은 날) 대비. <b>아래에서 호선·요일을 바꿔도 이 숫자는 그대로입니다.</b></p>
       </div>
       <div class="stats">
         {% for m in metrics %}
@@ -30,9 +31,33 @@
       </div>
     </section>
 
-    <section class="today">
+    {# 섹션 탭: 이야기 순서대로 한 섹션씩 본다. 선택은 주소 끝(#s3 등)에 남아 호선·요일을 바꿔도 유지된다. #}
+    <nav class="tabs" role="tablist" aria-label="섹션 선택">
+      <button type="button" role="tab" data-tab="today">오늘 예측</button>
+      {% for sec in sections %}<button type="button" role="tab" data-tab="s{{ loop.index }}"><span class="tno">{{ '%02d' % loop.index }}</span>{{ sec.tab }}</button>
+      {% endfor %}<button type="button" role="tab" data-tab="end">결론</button>
+    </nav>
+    <form class="controls" method="get"{% if static_site %} onsubmit="return false"{% endif %}>
+      <p class="ctl-note">호선·요일 범위 <small>(호선별로 바뀌는 그래프에 적용)</small></p>
+      <input type="hidden" name="line" value="{{ sel_line }}">
+      <nav class="chips" aria-label="호선 선택">
+        {% for l in ['전체'] + lines %}
+        {% set href = pages[l ~ '|' ~ sel_dtype] if static_site else url_for('index', line=l, day_type=sel_dtype) %}
+        <a class="chip{{ ' on' if l == sel_line }}" href="{{ href }}"{% if l == sel_line %} aria-current="page"{% endif %}>
+          {% if l == '전체' %}전체{% else %}<span class="lnb l{{ l[:-2] }}">{{ l[:-2] }}</span>호선{% endif %}</a>
+        {% endfor %}
+      </nav>
+      <label>요일 유형
+        <select name="day_type" onchange="{{ 'goPage()' if static_site else 'this.form.action = location.pathname + location.hash; this.form.submit()' }}">
+          <option value="전체">전체</option>
+          {% for d in day_types %}<option value="{{ d }}" {{ 'selected' if d == sel_dtype }}>{{ d }}</option>{% endfor %}
+        </select>
+      </label>
+      <a class="btn" href="{{ 'index.html' if static_site else url_for('index') }}">초기화</a>
+    </form>
+    <section class="today panel" id="today" role="tabpanel" data-next="s1" data-next-label="01 데이터 개요">
       <div class="today-head">
-        <h2>오늘의 지하철 이용량 예측</h2>
+        <h2>오늘의 지하철 이용량 예측 <small>(시간대별 자료가 있는 지하철 기준)</small></h2>
         <span class="scope">{{ '전체 호선' if sel_line == '전체' else sel_line }} · 오늘 서울 예보 반영</span>
       </div>
       <div class="today-grid">
@@ -71,33 +96,16 @@
       <p class="desc">평소 이용량(같은 요일 유형·시간대의 무강수일 평균)에 오늘 예보의 강수·눈·기온 보정 계수를 곱한 추정치입니다. 호선 단위, 2025년 한 해 데이터 기준입니다.
         {% if static_site %}<a href="today.html">시간대·호선별로 자세히 보기 →</a>{% endif %}</p>
     </section>
-
-    <form class="controls" method="get"{% if static_site %} onsubmit="return false"{% endif %}>
-      <p class="ctl-note">아래 그래프 범위</p>
-      <input type="hidden" name="line" value="{{ sel_line }}">
-      <nav class="chips" aria-label="호선 선택">
-        {% for l in ['전체'] + lines %}
-        {% set href = pages[l ~ '|' ~ sel_dtype] if static_site else url_for('index', line=l, day_type=sel_dtype) %}
-        <a class="chip{{ ' on' if l == sel_line }}" href="{{ href }}"{% if l == sel_line %} aria-current="page"{% endif %}>
-          {% if l == '전체' %}전체{% else %}<span class="lnb l{{ l[:-2] }}">{{ l[:-2] }}</span>호선{% endif %}</a>
-        {% endfor %}
-      </nav>
-      <label>요일 유형
-        <select name="day_type" onchange="{{ 'goPage()' if static_site else 'this.form.submit()' }}">
-          <option value="전체">전체</option>
-          {% for d in day_types %}<option value="{{ d }}" {{ 'selected' if d == sel_dtype }}>{{ d }}</option>{% endfor %}
-        </select>
-      </label>
-      <a class="btn" href="{{ 'index.html' if static_site else url_for('index') }}">초기화</a>
-    </form>
-
     {% for sec in sections %}
     {% set no, rest = sec.title.split('. ', 1) if '. ' in sec.title else ('', sec.title) %}
     {% set head, q = rest.split(' — ', 1) if ' — ' in rest else (rest, '') %}
+    <section class="panel" id="s{{ loop.index }}" role="tabpanel"
+      data-next="{{ 's%d' % (loop.index + 1) if not loop.last else 'end' }}"
+      data-next-label="{{ ('%02d ' % (loop.index + 1)) ~ loop.nextitem.tab if not loop.last else '결론' }}">
     <h2 class="sec"><span class="no">{{ '%02d' % (no | int) if no else '' }}</span><span class="t">{{ head }}</span>{% if q %}<span class="q">{{ q }}</span>{% endif %}</h2>
     <div class="grid">
       {% for c in sec.cards %}
-      <section class="card{{ ' wide' if c.id in ('factors', 'backtest', 'scatter', 'factor-size', 'spikes') }}" id="{{ c.id }}">
+      <section class="card{{ ' wide' if c.id in ('factors', 'backtest', 'scatter', 'factor-size', 'spikes', 'modes', 'transfer', 'mode-month') }}" id="{{ c.id }}">
         <h2>{{ c.title }}</h2>
         <div class="plot">{{ c.html | safe }}</div>
         <div class="cdesc">
@@ -108,19 +116,23 @@
       </section>
       {% endfor %}
     </div>
+    </section>
     {% endfor %}
-
-    <section class="card conclusion">
+    <section class="card conclusion panel" id="end" role="tabpanel">
       <h2>결론</h2>
-      <p class="desc">날씨는 이용량을 <b>같은 방향으로 일관되게</b> 줄이지만(비·눈 오는 날 소폭 감소), 그 크기는 평소 변동보다 작습니다.
-        추위·더위의 영향처럼 보이던 부분은 대부분 계절·연휴 효과였고, 보정 후에는 ±2% 안팎입니다.
-        같은 방법으로 비교하면 명절 연휴(−61%)·공휴일(−43%)·징검다리 평일(−9%)이 날씨(최대 −6% 안팎)보다 훨씬 크고,
-        역 하나만 보면 경기·축제 같은 행사가 이용량을 몇 배로 바꿉니다. 지하철 이용은 대부분 날씨와 상관없이 해야 하는 이동이라는 뜻입니다.
-        따라서 서비스는 "오늘은 평소보다 약 N% 차이"처럼 <b>상대적 수준</b>으로 안내하며, 열차 안 혼잡도가 아니라 승하차 인원 기준의 이용량임을 밝힙니다.
-        한계: 2023~2025년 3년치(2023년 초 코로나 여파·2023년 10월 요금 인상 같은 해마다의 수준 변화는 앞뒤 4주 기준선으로 걸러 냄), 강한 비 141시간대·눈 305시간대로 여전히 많지 않음, 2024년 4월은 원본의 시간대 칸 오류로 제외, 승객 유형은 2025년 원본에만 있음, 서울시청 한 지점의 날씨만 사용, 기상 예보 오차, 2026 공휴일은 수동 입력.</p>
+      <p class="desc"><b>① 날씨가 나쁘면 지하철을 덜 타는가?</b> 조금 덜 탑니다. 비·눈 오는 날 지하철은 같은 방향으로 일관되게 줄지만(많은 비 오는 평일 약 −5%), 그 크기는 평소 변동보다 작습니다.
+        추위·더위처럼 보이던 효과도 대부분 계절·연휴 효과였고, 보정 후에는 ±2% 안팎입니다.</p>
+      <p class="desc"><b>② 다른 교통수단은?</b> 같은 날 따릉이는 많은 비에 약 −57%로 급감하고, 버스는 지하철과 비슷하게 조금만 줄어듭니다.
+        지하철의 작은 감소는 '날씨와 무관'이 아니라 <b>'날씨를 피할 수 있는 수단'</b>이라는 뜻입니다. 다만 자전거에서 빠진 사람이 지하철로 옮겨 탄 흔적은 보이지 않아(역 단위 r≈0),
+        줄어든 이동은 옮겨 갔다기보다 미뤄지거나 취소된 이동으로 봅니다. 미세먼지 '나쁨'인 날은 세 수단 모두 평소와 차이가 없었습니다.</p>
+      <p class="desc"><b>③ 누가, 어디서 줄이는가?</b> 평일 출퇴근(필수 이동)은 역 성격과 관계없이 −3% 안팎으로 거의 그대로이고, 주말(선택 이동)은 2~3배 더 줄어듭니다.
+        특히 주말의 업무지구(도심·강남) 역이 가장 많이 줄어듭니다. 같은 방법으로 보면 명절 연휴(−61%)·공휴일(−43%)이 날씨보다 훨씬 크고, 역 하나만 보면 경기·축제가 이용량을 몇 배로 바꿉니다.</p>
+      <p class="desc"><b>그래서</b> 서비스는 "오늘은 평소보다 약 N% 차이"처럼 <b>상대적 수준</b>으로 안내하며, 열차 안 혼잡도가 아니라 승하차 인원 기준의 이용량임을 밝힙니다.
+        한계: 2023~2025년 3년치(해마다의 수준 변화는 앞뒤 4주 기준선으로 걸러 냄), 강한 비·눈 표본이 많지 않음, 2024년 4월은 원본의 시간대 칸 오류로 제외,
+        승객 유형은 2025년 원본에만 있음, 버스·따릉이는 하루 단위, 택시·자가용 자료 없음, 역 성격은 승하차 패턴으로 붙인 분류, 날씨는 서울시청 한 지점, 기상 예보 오차, 2026 공휴일은 수동 입력.</p>
     </section>
   </main>
-  <footer>자료: 서울교통공사 역별·시간대별 승하차 인원(2023~2025), Open-Meteo 과거 날씨·예보. 데이터시각화 팀 프로젝트.</footer>
+  <footer>자료: 서울교통공사 역별·시간대별 승하차 인원(2023~2025), Open-Meteo 과거 날씨·예보, 서울 열린데이터광장(버스 정류장별 일별 승하차, 공공자전거 이용정보·대여소 정보, 일별 평균 대기오염도, 역사마스터 정보). 데이터시각화 팀 프로젝트.</footer>
   <script>
     // mpld3 그래프는 고정 픽셀 크기로 그려져 좁은 카드에서 잘린다 → viewBox를 붙여 카드 폭에 맞춘다.
     function fitMpld3() {
@@ -135,12 +147,66 @@
     new MutationObserver(fitMpld3).observe(document.body, {childList: true, subtree: true});
     addEventListener("load", fitMpld3);
   </script>
+  <script>
+    // 섹션 탭: 한 번에 한 섹션만 보여 준다. 선택은 #해시로 남겨 새로 고침·호선 변경 뒤에도 유지.
+    (function () {
+      const panels = [...document.querySelectorAll(".panel")];
+      const tabs = [...document.querySelectorAll(".tabs [data-tab]")];
+      const nav = document.querySelector(".tabs");
+      tabs.forEach(t => {  // 스크린리더: 탭 ↔ 패널 연결
+        t.id = "tab-" + t.dataset.tab; t.setAttribute("aria-controls", t.dataset.tab);
+        document.getElementById(t.dataset.tab)?.setAttribute("aria-labelledby", t.id);
+      });
+      panels.forEach(p => {
+        if (!p.dataset.next) return;
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "next"; b.dataset.go = p.dataset.next;
+        b.textContent = "다음: " + p.dataset.nextLabel + " →";
+        p.appendChild(b);
+      });
+      function show(id, scroll) {
+        if (!panels.some(p => p.id === id)) id = "today";
+        panels.forEach(p => p.hidden = p.id !== id);
+        tabs.forEach(t => {
+          const on = t.dataset.tab === id;
+          t.setAttribute("aria-selected", on); t.tabIndex = on ? 0 : -1;
+          if (on) nav.scrollTo({left: t.offsetLeft - nav.clientWidth / 2 + t.offsetWidth / 2});  // 좁은 화면: 선택 탭을 가운데로(가로만)
+        });
+        if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
+        // 탭 막대가 화면 위에 붙어 있을 만큼 내려와 있으면, 새 섹션 머리가 막대 바로 아래 오게 올린다
+        const panel = document.getElementById(id);
+        const top = panel.getBoundingClientRect().top + scrollY - nav.offsetHeight - 8;
+        if (scroll && scrollY > top) window.scrollTo({top});
+        fitMpld3();
+      }
+      document.addEventListener("click", e => {
+        const t = e.target.closest("[data-tab], [data-go]");
+        if (t) { show(t.dataset.tab || t.dataset.go, true); return; }
+      });
+      function keepHash(e) {  // 호선 칩·초기화: 지금 보던 탭 유지 (가운데 클릭·새 탭 열기 포함)
+        const a = e.target.closest(".chips a, a.btn");
+        if (a) a.href = a.href.split("#")[0] + location.hash;
+      }
+      ["click", "auxclick", "contextmenu"].forEach(ev => document.addEventListener(ev, keepHash, true));
+      nav.addEventListener("keydown", e => {  // 좌우 화살표로 탭 이동
+        const i = tabs.indexOf(document.activeElement);
+        if (i < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        const j = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1
+                : (i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length;
+        const n = tabs[j];
+        n.focus(); show(n.dataset.tab, false);
+      });
+      addEventListener("hashchange", () => show(location.hash.slice(1), false));
+      show(location.hash.slice(1), false);
+    })();
+  </script>
   {% if static_site %}
   <script>
     const PAGES = {{ pages | tojson }};
     function goPage() {
       const f = document.querySelector("form.controls");
-      location.href = PAGES[f.line.value + "|" + f.day_type.value] || "index.html";
+      location.href = (PAGES[f.line.value + "|" + f.day_type.value] || "index.html") + location.hash;
     }
   </script>
   <script src="predict.js"></script>

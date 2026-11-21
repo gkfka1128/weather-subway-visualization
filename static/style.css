@@ -27,7 +27,7 @@ h1 { margin:0; font-size:clamp(1.6rem, 3.2vw, 2.4rem); font-weight:800; letter-s
 .ico.big { width:72px; height:72px; }
 .ico.rain { color:var(--rain); } .ico.snow { color:var(--snow); } .ico.sun { color:var(--sun); }
 .ico.partly { color:var(--sun); } .ico.cloud { color:var(--cloud); } .ico.thermo { color:var(--temp); }
-.ico.scatter { color:var(--corr); }
+.ico.scatter { color:var(--corr); } .ico.bike { color:var(--temp); }
 
 /* 노선 배지 (원 안에 번호) */
 .lnb { display:inline-grid; place-items:center; width:1.6em; height:1.6em; border-radius:50%;
@@ -50,12 +50,13 @@ h1 { margin:0; font-size:clamp(1.6rem, 3.2vw, 2.4rem); font-weight:800; letter-s
           letter-spacing:-.02em; line-height:1.1; padding:4px 10px; border-radius:6px; }
 .stat span { color:var(--ink2); font-size:.82rem; }
 .t-rain b { color:var(--rain); background:var(--rain-bg); } .t-snow b { color:var(--snow); background:var(--snow-bg); }
-.t-temp b { color:var(--temp); background:var(--temp-bg); } .t-corr b { color:var(--corr); background:var(--corr-bg); }
+.t-temp b, .t-bike b { color:var(--temp); background:var(--temp-bg); } .t-corr b { color:var(--corr); background:var(--corr-bg); }
 
 /* 오늘 예측 */
 .today { margin:40px 0 0; }
 .today-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; margin-bottom:14px; }
 .today-head h2 { margin:0; font-size:1.25rem; font-weight:800; }
+.today-head h2 small { font-size:.72rem; font-weight:500; color:var(--ink2); }
 .scope { font-size:.82rem; color:var(--ink2); }
 .today-grid { display:grid; grid-template-columns:minmax(260px,1fr) 2fr; gap:20px; align-items:stretch; }
 .wx { background:var(--panel); border:1px solid var(--rule); padding:18px 20px; display:flex; flex-direction:column; gap:16px; }
@@ -87,7 +88,7 @@ h1 { margin:0; font-size:clamp(1.6rem, 3.2vw, 2.4rem); font-weight:800; letter-s
 .lines-today small { text-align:right; color:var(--ink2); }
 
 /* 필터: 노선 칩 */
-.controls { display:flex; flex-wrap:wrap; gap:14px 24px; align-items:flex-end; margin:40px 0 0;
+.controls { display:flex; flex-wrap:wrap; gap:14px 24px; align-items:flex-end; margin:20px 0 0;
             padding:14px 0; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
 .ctl-note { flex-basis:100%; margin:0; font-size:.75rem; color:var(--ink2); }
 .chips { display:flex; flex-wrap:wrap; gap:6px; }
@@ -154,4 +155,27 @@ footer { max-width:1280px; margin:0 auto; padding:20px 24px 40px; border-top:1px
   .ov-head { padding:12px 14px 0; }
   .card, .wx, .today-main, .lines-today { padding:14px; }
   footer { padding:20px 16px 32px; }
+}
+
+/* 섹션 탭 */
+.tabs { position:sticky; top:0; z-index:10; display:flex; gap:2px; margin:28px -24px 0; padding:8px 24px;
+        background:color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--rule); overflow-x:auto; scrollbar-width:thin; }
+.tabs button { flex:none; font:inherit; font-size:.9rem; font-weight:600; color:var(--ink2); background:transparent;
+               border:0; border-radius:999px; padding:8px 14px; cursor:pointer; white-space:nowrap; }
+.tabs button:hover { background:#ebe8e1; color:var(--ink); }
+.tabs button[aria-selected="true"] { background:var(--ink); color:#fff; }
+.tabs .tno { font-size:.74rem; font-weight:800; margin-right:6px; opacity:.65; }
+.tabs button:focus-visible, .next:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.panel[hidden] { display:none; }
+.panel { scroll-margin-top:64px; }  /* #s3 로 들어올 때 탭 막대에 머리가 가리지 않게 */
+.panel > .sec { margin-top:28px; }
+.today.panel { margin-top:28px; }
+.conclusion.panel { margin-top:28px; }
+.next { display:block; margin:32px 0 0 auto; font:inherit; font-size:.95rem; font-weight:700; color:#fff;
+        background:var(--accent); border:0; border-radius:8px; padding:11px 20px; cursor:pointer; }
+.next:hover { filter:brightness(1.1); }
+@media (max-width:760px) {  /* main 좌우 여백이 16px로 줄어드는 폭과 맞춘다 */
+  .tabs { margin:20px -16px 0; padding:8px 16px; }
+  .tabs button { font-size:.85rem; padding:7px 12px; }
 }
