@@ -105,7 +105,7 @@
     <h2 class="sec"><span class="no">{{ '%02d' % (no | int) if no else '' }}</span><span class="t">{{ head }}</span>{% if q %}<span class="q">{{ q }}</span>{% endif %}</h2>
     <div class="grid">
       {% for c in sec.cards %}
-      <section class="card{{ ' wide' if c.id in ('factors', 'backtest', 'scatter', 'factor-size', 'spikes', 'modes', 'transfer', 'mode-month') }}" id="{{ c.id }}">
+      <section class="card{{ ' wide' if c.id in ('factors', 'backtest', 'scatter', 'factor-size', 'spikes', 'modes', 'violin', 'transfer', 'mode-month') }}" id="{{ c.id }}">
         <h2>{{ c.title }}</h2>
         <div class="plot">{{ c.html | safe }}</div>
         <div class="cdesc">
@@ -120,8 +120,22 @@
     {% endfor %}
     <section class="card conclusion panel" id="end" role="tabpanel">
       <h2>결론</h2>
-      <p class="desc"><b>① 날씨가 나쁘면 지하철을 덜 타는가?</b> 조금 덜 탑니다. 비·눈 오는 날 지하철은 같은 방향으로 일관되게 줄지만(많은 비 오는 평일 약 −5%), 그 크기는 평소 변동보다 작습니다.
-        추위·더위처럼 보이던 효과도 대부분 계절·연휴 효과였고, 보정 후에는 ±2% 안팎입니다.</p>
+      <p class="lead">서울의 이동은 대부분 <b>해야 해서 하는 이동</b>이라, 날씨는 <b>안 해도 되는 이동</b>만 줄입니다.</p>
+      <table class="verdicts">
+        <caption>흔히 하는 생각 {{ verdicts | length }}가지를 2023~2025년 데이터로 확인한 결과</caption>
+        <thead><tr><th scope="col">흔히 하는 생각</th><th scope="col">판정</th><th scope="col">근거</th><th scope="col">그래프</th></tr></thead>
+        <tbody>
+          {% for v in verdicts %}<tr>
+            <th scope="row">{{ v.myth }}</th>
+            <td><span class="vd {{ v.tone }}">{{ v.verdict }}</span></td>
+            <td>{{ v.evidence }}</td>
+            <td><button type="button" class="vgo" data-go="{{ v.go }}" aria-label="근거 그래프 보기: {{ v.go_label }}">{{ v.go_label }} <span aria-hidden="true">→</span></button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="desc"><b>① 날씨가 나쁘면 지하철을 덜 타는가?</b> 조금 덜 탑니다. 비·눈 오는 날 지하철은 같은 방향으로 일관되게 줄지만, 약한 비(약 −2%)는 맑은 날끼리의 흔들림 안이고 많은 비 오는 평일에만 약 −5.5%로 그보다 커집니다.
+        추위·더위처럼 보이던 효과도 대부분 계절·연휴 효과였고, 보정 후에는 ±2% 안팎입니다(최저 −10℃ 이하·최고 33℃ 이상인 극단적인 날만 −5% 안팎).</p>
       <p class="desc"><b>② 다른 교통수단은?</b> 같은 날 따릉이는 많은 비에 약 −57%로 급감하고, 버스는 지하철과 비슷하게 조금만 줄어듭니다.
         지하철의 작은 감소는 '날씨와 무관'이 아니라 <b>'날씨를 피할 수 있는 수단'</b>이라는 뜻입니다. 다만 자전거에서 빠진 사람이 지하철로 옮겨 탄 흔적은 보이지 않아(역 단위 r≈0),
         줄어든 이동은 옮겨 갔다기보다 미뤄지거나 취소된 이동으로 봅니다. 미세먼지 '나쁨'인 날은 세 수단 모두 평소와 차이가 없었습니다.</p>

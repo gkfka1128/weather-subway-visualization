@@ -124,7 +124,7 @@ def index():
         error = f"오늘 예보를 불러오지 못했습니다 ({type(e).__name__})."
     return render_template("index.html", sections=charts.sections(line, dtype), pred=pred_card, error=error,
                            lines=LINES, day_types=DAY_TYPES, sel_line=line, sel_dtype=dtype,
-                           metrics=charts.headline())
+                           metrics=charts.headline(), verdicts=charts.verdicts())
 
 
 @app.route("/api/predict")

@@ -60,7 +60,7 @@ def build_dashboards():
                 html = render_template(
                     "index.html", static_site=True, css_href="style.css", pages=pages,
                     sections=charts.sections(line, dtype), pred=None, error=None,
-                    lines=LINES, day_types=DAY_TYPES, sel_line=line, sel_dtype=dtype, metrics=charts.headline())
+                    lines=LINES, day_types=DAY_TYPES, sel_line=line, sel_dtype=dtype, metrics=charts.headline(), verdicts=charts.verdicts())
                 (OUT / page_name(li, di)).write_text(html, encoding="utf-8")
                 print(f"  {page_name(li, di):16s} {line} / {dtype}")
 
