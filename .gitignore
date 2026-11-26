@@ -2,7 +2,10 @@
 __pycache__/
 *.pyc
 .env
+.env.*
+!.env.example
 .claude/
 data/raw/
 site/
 *.pdf
+report/captures/

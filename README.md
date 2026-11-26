@@ -1,4 +1,4 @@
-# 날씨는 서울 시민의 이동을 어떻게 바꾸는가 — 지하철·버스·따릉이 (Flask + matplotlib/seaborn + mpld3)
+# 날씨는 서울 시민의 이동을 어떻게 바꾸는가 — 지하철·버스·따릉이 (Flask + matplotlib/seaborn + mpld3 + Plotly)
 
 서울교통공사 1~8호선 2023~2025년(3년) 승하차 데이터와 Open-Meteo 날씨를 중심으로,
 같은 기간 서울 버스·따릉이(공공자전거)·미세먼지·역 좌표를 함께 엮어
@@ -14,13 +14,21 @@ py -m venv .venv
 .\.venv\Scripts\python.exe service/serve.py    # 서비스   http://127.0.0.1:5001
 ```
 
-예보(Open-Meteo, 키 불필요)를 인터넷에서 받아 오므로 오프라인이면 예측 부분만 안내 문구로 대체된다.
+예보를 인터넷에서 받아 오므로 오프라인이면 예측 부분만 안내 문구로 대체된다.
+
+### 날씨 예보 API
+
+- **기상청 단기예보**(공공데이터포털 「기상청_단기예보 조회서비스」): `.env.example`을 `.env`로 복사해 `KMA_SERVICE_KEY=`에 인증키를 넣으면 쓴다.
+  오늘~3일 뒤를 기상청 값으로 채우고, 화면의 날씨 칸에 "기상청 단기예보 · ○시 발표"로 표시된다.
+- **Open-Meteo**(키 불필요): 기상청이 주지 않는 4~6일 뒤, 그리고 키가 없거나 기상청 호출이 실패했을 때 쓴다.
+- GitHub Pages 판은 인증키를 숨길 서버가 없어 Open-Meteo만 쓴다.
 
 ## Docker
 
 ```bash
 docker build -t subway-weather .
 docker run --rm -p 8000:8000 subway-weather   # 대시보드 http://localhost:8000
+docker run --rm -p 8000:8000 --env-file .env subway-weather   # 기상청 인증키(.env)를 넘겨 실행
 ```
 
 서비스 사이트(사용자용):
@@ -51,12 +59,13 @@ main에 push하면 `.github/workflows/pages.yml`이 빌드·배포한다(저장�
 ## 구조
 
 - `analysis.py` — 데이터 로딩, 계절 보정 기준선, 날씨 보정 계수, 백테스트
-- `charts.py` — 그래프 25개 + 설명 문장(숫자는 데이터에서 계산), 화면 상단 핵심 숫자, 결론 탭의 통념 검증 표(`verdicts()`)
+- `charts.py` — 그래프 25개(matplotlib/seaborn 19개 + 마우스를 올리면 값이 뜨는 Plotly 6개) + 설명 문장(숫자는 데이터에서 계산), 화면 상단 핵심 숫자, 결론 탭의 통념 검증 표(`verdicts()`)
 - `mobility.py` — 지하철·버스·따릉이 비교, 역 성격(유형)별 효과, 미세먼지 (같은 요일 보통날 대비 %)
-- `app.py` — 날씨 예보 → 오늘 예측, 대시보드 라우트, `/api/predict?line=2호선`(JSON)
+- `app.py` — 날씨 예보(기상청 단기예보 + Open-Meteo) → 오늘 예측, 대시보드 라우트, `/api/predict?line=2호선`(JSON)
 - `service/` — 이용자용 사이트 (`serve.py`, `templates/home.html`, `static/service.css`)
 - `prep/` — 데이터 준비 스크립트 (`aggregate_subway.py`, `fetch_weather.py`, `merge.py`, `fetch_mobility.py`, `fetch_air.py`, `stations.py`, `link_bike.py`)
-- `data/` — 집계·병합 CSV (원본 `data/raw/`는 git 제외), `TEAM_PLAN.md`, `report/`
+- `data/` — 집계·병합 CSV (원본 `data/raw/`는 git 제외), `TEAM_PLAN.md`
+- `report/` — 보고서용 화면 캡처. `node report/capture.mjs`가 게시된 사이트를 헤드리스 Chrome으로 찍어 `report/captures/`에 넣는다
 
 ### 데이터 다시 만들기
 

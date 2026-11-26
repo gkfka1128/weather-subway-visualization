@@ -6,6 +6,7 @@
   <title>날씨와 서울의 이동</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css">
   <link rel="stylesheet" href="{{ css_href or url_for('static', filename='style.css') }}">
+  <script src="https://cdn.plot.ly/plotly-4.1.1.min.js" charset="utf-8"></script>{# charts.py의 Plotly 그래프 6개가 쓴다 #}
 </head>
 <body>
   <header>
@@ -31,7 +32,8 @@
       </div>
     </section>
 
-    {# 섹션 탭: 이야기 순서대로 한 섹션씩 본다. 선택은 주소 끝(#s3 등)에 남아 호선·요일을 바꿔도 유지된다. #}
+    {# 섹션 탭: 이야기 순서대로 한 섹션씩 본다. 선택은 주소 끝(#s3 등)에 남아 호선·요일을 바꿔도 유지된다.
+       호선·요일 선택 막대는 그 선택에 따라 바뀌는 그래프가 있는 탭(data-ctl)에서만 보인다. #}
     <nav class="tabs" role="tablist" aria-label="섹션 선택">
       <button type="button" role="tab" data-tab="today">오늘 예측</button>
       {% for sec in sections %}<button type="button" role="tab" data-tab="s{{ loop.index }}"><span class="tno">{{ '%02d' % loop.index }}</span>{{ sec.tab }}</button>
@@ -55,7 +57,7 @@
       </label>
       <a class="btn" href="{{ 'index.html' if static_site else url_for('index') }}">초기화</a>
     </form>
-    <section class="today panel" id="today" role="tabpanel" data-next="s1" data-next-label="01 데이터 개요">
+    <section class="today panel" id="today" role="tabpanel" data-ctl data-next="s1" data-next-label="01 데이터 개요">
       <div class="today-head">
         <h2>오늘의 지하철 이용량 예측 <small>(시간대별 자료가 있는 지하철 기준)</small></h2>
         <span class="scope">{{ '전체 호선' if sel_line == '전체' else sel_line }} · 오늘 서울 예보 반영</span>
@@ -66,6 +68,8 @@
           <div class="wx-now">{{ ico(pred.wx.icon, 'big') }}
             <div><div class="wx-temp">{{ pred.wx.range }}</div>
               <div class="wx-sky">{{ pred.wx.sky }} · 날씨 보정 {{ '%+.1f' % pred.wx.pct }}%</div></div></div>
+          <dl class="wx-extra">{% for k, v in pred.wx.extra %}<div><dt>{{ k }}</dt><dd>{{ v }}</dd></div>{% endfor %}</dl>
+          <p class="wx-src">{{ pred.wx.source }}</p>
           <p class="wx-hint">3시간 간격 예보 · 기온 / 강수량</p>
           <ol class="wx-hours">
             {% for h in pred.wx.hours %}<li><span>{{ h.hour }}시</span>{{ ico(h.icon) }}<b>{{ h.temp }}°</b><i>{{ h.amt }}</i></li>{% endfor %}
@@ -99,14 +103,14 @@
     {% for sec in sections %}
     {% set no, rest = sec.title.split('. ', 1) if '. ' in sec.title else ('', sec.title) %}
     {% set head, q = rest.split(' — ', 1) if ' — ' in rest else (rest, '') %}
-    <section class="panel" id="s{{ loop.index }}" role="tabpanel"
+    <section class="panel" id="s{{ loop.index }}" role="tabpanel"{{ ' data-ctl' if sec.cards | selectattr('filtered') | list }}
       data-next="{{ 's%d' % (loop.index + 1) if not loop.last else 'end' }}"
       data-next-label="{{ ('%02d ' % (loop.index + 1)) ~ loop.nextitem.tab if not loop.last else '결론' }}">
     <h2 class="sec"><span class="no">{{ '%02d' % (no | int) if no else '' }}</span><span class="t">{{ head }}</span>{% if q %}<span class="q">{{ q }}</span>{% endif %}</h2>
     <div class="grid">
       {% for c in sec.cards %}
-      <section class="card{{ ' wide' if c.id in ('factors', 'backtest', 'scatter', 'factor-size', 'spikes', 'modes', 'violin', 'transfer', 'mode-month') }}" id="{{ c.id }}">
-        <h2>{{ c.title }}</h2>
+      <section class="card{{ ' wide' if c.id in ('factors', 'backtest', 'scatter', 'factor-size', 'spikes', 'modes', 'violin', 'transfer', 'mode-month', 'station-map') }}" id="{{ c.id }}">
+        <h2>{{ c.title }}{% if c.filtered %} <span class="fbadge">호선·요일 선택 적용</span>{% endif %}</h2>
         <div class="plot">{{ c.html | safe }}</div>
         <div class="cdesc">
           <p class="key">{{ c.desc.key }}</p>
@@ -189,6 +193,9 @@
         if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
         // 탭 막대가 화면 위에 붙어 있을 만큼 내려와 있으면, 새 섹션 머리가 막대 바로 아래 오게 올린다
         const panel = document.getElementById(id);
+        document.querySelector(".controls").hidden = !panel.hasAttribute("data-ctl");
+        // Plotly 그래프는 숨겨진 탭 안에서 폭 0으로 그려지므로, 탭이 보일 때 폭을 다시 맞춘다
+        if (window.Plotly) panel.querySelectorAll(".js-plotly-plot").forEach(p => Plotly.Plots.resize(p));
         const top = panel.getBoundingClientRect().top + scrollY - nav.offsetHeight - 8;
         if (scroll && scrollY > top) window.scrollTo({top});
         fitMpld3();

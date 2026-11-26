@@ -41,10 +41,11 @@ h1 { margin:0; font-size:clamp(1.6rem, 3.2vw, 2.4rem); font-weight:800; letter-s
 .ov-head h2 { margin:0; font-size:1rem; font-weight:800; }
 .ov-head p { margin:0; color:var(--ink2); font-size:.85rem; }
 .ov-head p b { color:var(--ink); font-weight:600; }
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); padding:6px 0 4px; }
-.stat { display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto; column-gap:12px; row-gap:6px;
-        align-items:center; padding:14px 20px 16px; }
-.stat + .stat { border-left:1px solid var(--rule); }
+/* 칸 너비를 똑같이 나누면 긴 숫자(한파/폭염)가 옆 칸을 넘는다 → 내용 길이만큼 차지하고 남는 폭을 나눠 갖게 한다 */
+.stats { display:flex; flex-wrap:wrap; padding:6px 0 4px; overflow:hidden; }
+.stat { flex:1 1 auto; display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto; column-gap:12px; row-gap:6px;
+        align-items:center; padding:14px 20px 16px; border-left:1px solid var(--rule); margin-left:-1px; }
+/* 모든 칸에 왼쪽 선을 긋고 1px 왼쪽으로 당긴다 → 줄의 첫 칸 선은 바깥(overflow:hidden)으로 잘려, 줄이 바뀌어도 맨 앞에 선이 남지 않는다 */
 .stat .ico { grid-row:1 / 3; width:34px; height:34px; align-self:start; margin-top:2px; }
 .stat b { justify-self:start; font-size:clamp(1.2rem, 2vw, 1.6rem); white-space:nowrap; font-weight:800;
           letter-spacing:-.02em; line-height:1.1; padding:4px 10px; border-radius:6px; }
@@ -59,7 +60,8 @@ h1 { margin:0; font-size:clamp(1.6rem, 3.2vw, 2.4rem); font-weight:800; letter-s
 .today-head h2 small { font-size:.72rem; font-weight:500; color:var(--ink2); }
 .scope { font-size:.82rem; color:var(--ink2); }
 .today-grid { display:grid; grid-template-columns:minmax(260px,1fr) 2fr; gap:20px; align-items:stretch; }
-.wx { background:var(--panel); border:1px solid var(--rule); padding:18px 20px; display:flex; flex-direction:column; gap:16px; }
+.wx { background:var(--panel); border:1px solid var(--rule); padding:18px 20px; display:flex; flex-direction:column; gap:16px;
+      justify-content:space-between; }
 .wx-now { display:flex; align-items:center; gap:16px; }
 .wx-temp { font-size:2rem; font-weight:800; letter-spacing:-.02em; line-height:1.1; }
 .wx-sky { color:var(--ink2); font-size:.88rem; margin-top:4px; }
@@ -68,7 +70,12 @@ h1 { margin:0; font-size:clamp(1.6rem, 3.2vw, 2.4rem); font-weight:800; letter-s
 .wx-hours li { display:flex; flex-direction:column; align-items:center; gap:4px; font-size:.78rem; color:var(--ink2); }
 .wx-hours b { color:var(--ink); font-size:.9rem; }
 .wx-hours i { font-style:normal; font-size:.72rem; color:var(--rain); }
-.wx-hint { margin:auto 0 0; font-size:.8rem; color:var(--ink2); line-height:1.5; }
+.wx-extra { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:0; }
+.wx-extra div { background:var(--paper); padding:8px 10px; }
+.wx-extra dt { font-size:.72rem; color:var(--ink2); }
+.wx-extra dd { margin:2px 0 0; font-size:.92rem; font-weight:700; }
+.wx-src { margin:-8px 0 0; font-size:.72rem; color:var(--ink2); }
+.wx-hint { margin:0; font-size:.8rem; color:var(--ink2); line-height:1.5; }
 .wx-load { color:var(--ink2); margin:0; }
 .today-main { background:var(--panel); border:1px solid var(--rule); padding:18px 20px; min-width:0; }
 .today .lead { margin:0 0 10px; font-size:1.1rem; font-weight:600; line-height:1.55; }
@@ -90,6 +97,9 @@ h1 { margin:0; font-size:clamp(1.6rem, 3.2vw, 2.4rem); font-weight:800; letter-s
 /* 필터: 노선 칩 */
 .controls { display:flex; flex-wrap:wrap; gap:14px 24px; align-items:flex-end; margin:20px 0 0;
             padding:14px 0; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
+.controls[hidden] { display:none; }
+.fbadge { margin-left:6px; padding:2px 7px; border:1px solid var(--rule); border-radius:999px; font-size:.68rem; font-weight:500;
+          color:var(--ink2); white-space:nowrap; vertical-align:middle; }
 .ctl-note { flex-basis:100%; margin:0; font-size:.75rem; color:var(--ink2); }
 .chips { display:flex; flex-wrap:wrap; gap:6px; }
 .chip { display:inline-flex; align-items:center; gap:5px; padding:5px 10px 5px 6px; border:1px solid var(--rule);
@@ -173,9 +183,9 @@ footer { max-width:1280px; margin:0 auto; padding:20px 24px 40px; border-top:1px
   .grid { grid-template-columns:1fr; }
   .today-grid { grid-template-columns:1fr; }
   .lines-today ul { grid-template-columns:1fr; }
-  .stats { grid-template-columns:1fr; }
-  .stat { padding:12px 14px; }
-  .stat + .stat { border-left:0; border-top:1px solid var(--rule); }
+  .stat { flex-basis:100%; padding:12px 14px; }
+  .stat { border-left:0; margin-left:0; }
+  .stat + .stat { border-top:1px solid var(--rule); }
   .stat .ico { width:26px; height:26px; }
   .ov-head { padding:12px 14px 0; }
   .card, .wx, .today-main, .lines-today { padding:14px; }

@@ -1,4 +1,5 @@
-"""대시보드 그래프 25개 + 오늘 예측 그래프 + 결론의 통념 검증 표. 설명 문장의 숫자는 그때그때 데이터에서 계산한다."""
+"""대시보드 그래프 25개 + 오늘 예측 그래프 + 결론의 통념 검증 표. 설명 문장의 숫자는 그때그때 데이터에서 계산한다.
+기본은 matplotlib/seaborn(+mpld3)이고, 점·막대 하나하나의 값을 봐야 하는 6개만 Plotly로 그려 마우스를 올리면 값이 뜬다."""
 import base64
 import io
 import re
@@ -12,8 +13,10 @@ import matplotlib.pyplot as plt
 import mpld3
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import seaborn as sns
 from markupsafe import Markup, escape
+from plotly.subplots import make_subplots
 
 from analysis import (_HOUR_WEATHER, CUT, DF, LINES, ROOT, PT, PTYPES, RAIN_ORDER, ST, TEMP_ORDER, WEEKDAYS, backtest, group_stats,
                       make_t, t_for)
@@ -22,7 +25,6 @@ import mobility as mob
 from matplotlib import font_manager as _fm
 from matplotlib.colors import to_rgba
 from matplotlib.ticker import FuncFormatter
-import matplotlib.patheffects as pe
 
 # Windows는 맑은 고딕, Docker(리눅스)는 나눔고딕 — 실제로 설치된 첫 한글 폰트를 쓴다.
 _installed = {f.name for f in _fm.fontManager.ttflist}
@@ -54,6 +56,22 @@ def _out(fig, kind: str) -> str:
     html = mpld3.fig_to_html(fig) if kind == "html" else _png(fig)
     plt.close(fig)
     return html
+
+
+def _plotly(fig, height: int = 380, legend_below: bool = False) -> str:
+    """Plotly 그림을 화면(style.css)과 같은 글꼴·색으로 맞춰 <div>로 낸다. plotly.js는 index.html이 한 번만 싣는다."""
+    fig.update_layout(height=height, margin=dict(l=8, r=8, t=48, b=8), title_font_size=15, title_x=.5,
+                      font=dict(family="Pretendard, 'Malgun Gothic', sans-serif", size=13, color="#1b1b1a"),
+                      paper_bgcolor="#fff", plot_bgcolor="#fff", hoverlabel=dict(bgcolor="#fff", font_size=13),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1, font_size=12))
+    if legend_below:  # 그림이 좌우 두 칸이면 위쪽 범례가 오른쪽 칸 제목과 겹친다 → 아래 가운데로
+        fig.update_layout(legend=dict(yanchor="top", y=-.16, xanchor="center", x=.5))
+    fig.update_xaxes(gridcolor="#ebe8e1", linecolor="#d8d4ca", zeroline=False, automargin=True)
+    fig.update_yaxes(gridcolor="#ebe8e1", linecolor="#d8d4ca", zeroline=False, automargin=True)
+    return fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})
+
+
+HOVER = "막대에 마우스를 올리면(휴대폰은 누르면) 정확한 값이 뜹니다."
 
 
 def _hour_x(h):
@@ -154,18 +172,15 @@ def c_station(line, dtype):
     s = (sub.groupby(["station", "line"])["use"].sum() / n / 10000).nlargest(15).iloc[::-1]
     # 역 이름 뒤 괄호 부기명(예: 잠실(송파구청))은 빼고, 호선은 막대 색으로도 보여 준다
     names = [f"{a.split('(')[0]} · {b}" for a, b in s.index]
-    fig, ax = plt.subplots(figsize=(7, 4.8))
-    ax.barh(range(len(s)), s.to_numpy(), color=[LINE_COLORS.get(b, C_BLUE) for _, b in s.index], height=.7)
-    ax.set_yticks(range(len(s)))
-    ax.set_yticklabels(names, fontsize=9)
-    ax.set(title=f"이용량 많은 역 15곳 ({_scope(line, dtype)})", xlabel="하루 평균 이용량 (만 명)")
-    # mpld3는 bbox_inches="tight"가 없어 긴 라벨이 잘린다 → 가장 긴 라벨 길이만큼 왼쪽 여백을 직접 잡는다
-    fig.subplots_adjust(left=min(.45, .06 + .024 * max(len(x) for x in names)), right=.97, top=.92, bottom=.11)
+    fig = go.Figure(go.Bar(x=s.to_numpy(), y=names, orientation="h", marker_color=[LINE_COLORS.get(b, C_BLUE) for _, b in s.index],
+                           customdata=[[a, b] for a, b in s.index],
+                           hovertemplate="<b>%{customdata[0]}</b> · %{customdata[1]}<br>하루 평균 %{x:.1f}만 명<extra></extra>"))
+    fig.update_layout(title=f"이용량 많은 역 15곳 ({_scope(line, dtype)})", xaxis_title="하루 평균 이용량 (만 명)", bargap=.3)
     a, b = s.index[-1]
     desc = _desc(f"**{a.split('(')[0]}역({b})**이 하루 평균 {s.iloc[-1]:,.1f}만 명으로 1위입니다.",
-                 ("읽는 법", "막대 색은 호선 고유색입니다. 역 이름 뒤 괄호 부기명은 줄였습니다."),
+                 ("읽는 법", "막대 색은 호선 고유색입니다. 역 이름 뒤 괄호 부기명은 줄였습니다. " + HOVER),
                  ("참고", "역별 자료는 시간대 구분이 없는 일 단위라서, 예측은 호선 단위로 하고 역은 규모 확인용으로 씁니다."))
-    return _out(fig, "html"), desc
+    return _plotly(fig, 460), desc
 
 
 def c_ptype_share():
@@ -208,23 +223,26 @@ def c_corr(line, dtype):
 
 def c_scatter(line, dtype):
     d = _daily(t_for(line, dtype))
-    fig, axes = plt.subplots(1, 2, figsize=(9, 3.8))
-    for ax, col, ttl, ylab in ((axes[0], "raw", "보정 전 (요일 유형만 보정)", "하루 이용량 / 요일유형 평균"),
-                               (axes[1], "ratio", "보정 후 (계절·연휴 제거)", "실제 / 기준선")):
-        ax.scatter(d["temp_c"], d[col], s=12, alpha=.45, color=C_GRAY)
+    panels = (("raw", "보정 전 (요일 유형만 보정)", "하루 이용량 / 요일유형 평균"), ("ratio", "보정 후 (계절·연휴 제거)", "실제 / 기준선"))
+    fig = make_subplots(rows=1, cols=2, subplot_titles=[p[1] for p in panels], horizontal_spacing=.1)
+    for i, (col, _, ylab) in enumerate(panels, 1):
+        fig.add_trace(go.Scatter(x=d["temp_c"], y=d[col], mode="markers", marker=dict(size=5, color=C_GRAY, opacity=.5),
+                                 customdata=d.index, name="하루", showlegend=i == 1,
+                                 hovertemplate="<b>%{customdata}</b><br>평균 %{x:.1f}℃<br>" + ylab + " %{y:.2f}<extra></extra>"), 1, i)
         bins = pd.cut(d["temp_c"], bins=np.arange(-15, 40, 5))
         m = d.groupby(bins, observed=True).agg(x=("temp_c", "mean"), y=(col, "mean"), n=(col, "size"))
         m = m[m["n"] >= 3]
-        ax.plot(m["x"], m["y"], marker="o", color=C_RED, label="5℃ 구간 평균")
-        ax.set(title=ttl, xlabel="하루 평균 기온 (℃)", ylabel=ylab)
-        ax.legend(fontsize=8)
+        fig.add_trace(go.Scatter(x=m["x"], y=m["y"], mode="lines+markers", line=dict(color=C_RED, width=2), marker_size=8,
+                                 customdata=m["n"], name="5℃ 구간 평균", showlegend=i == 1,
+                                 hovertemplate="<b>구간 평균</b> (%{customdata}일)<br>평균 %{x:.1f}℃<br>" + ylab + " %{y:.2f}<extra></extra>"), 1, i)
+        fig.update_xaxes(title_text="하루 평균 기온 (℃)", row=1, col=i)
+        fig.update_yaxes(title_text=ylab, row=1, col=i)
     raw_rng = d.groupby(pd.cut(d["temp_c"], np.arange(-15, 40, 5)), observed=True)["raw"].mean()
     adj_rng = d.groupby(pd.cut(d["temp_c"], np.arange(-15, 40, 5)), observed=True)["ratio"].mean()
     desc = _desc(f"기온에 따른 차이가 보정 전 **{(raw_rng.max() - raw_rng.min()) * 100:.0f}%p**에서 보정 후 **{(adj_rng.max() - adj_rng.min()) * 100:.0f}%p**로 줄어듭니다.",
-                 ("읽는 법", f"점 하나가 하루, 빨간 선은 5℃ 구간 평균입니다. 구간 평균은 보정 전 {raw_rng.min():.2f}~{raw_rng.max():.2f}, 보정 후 {adj_rng.min():.2f}~{adj_rng.max():.2f}입니다."),
+                 ("읽는 법", f"점 하나가 하루, 빨간 선은 5℃ 구간 평균입니다. 점에 마우스를 올리면 날짜가 뜹니다. 구간 평균은 보정 전 {raw_rng.min():.2f}~{raw_rng.max():.2f}, 보정 후 {adj_rng.min():.2f}~{adj_rng.max():.2f}입니다."),
                  ("해석", "'추운 날 이용량이 적다'는 현상의 상당 부분은 기온 자체가 아니라 **계절·연휴 요인**이었습니다."))
-    fig.tight_layout()
-    return _out(fig, "png"), desc
+    return _plotly(fig, 420, legend_below=True), desc
 
 
 def c_rain_commute(line, dtype):
@@ -334,22 +352,20 @@ def c_line_rain():
 
 def c_backtest():
     daily, metrics, ndays, nwet = backtest()
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4), gridspec_kw={"width_ratios": [1.6, 1]})
-    ax = axes[0]
+    fig = make_subplots(rows=1, cols=2, column_widths=[.62, .38], horizontal_spacing=.08,
+                        subplot_titles=[f"하루 이용량: 실제 vs 예측 (검증 {ndays}일)", "평균 절대 오차율 (낮을수록 좋음)"])
     x = pd.to_datetime(daily.index)
-    ax.plot(x, daily["use"] / 1e6, color="black", lw=1.4, label="실제")
-    ax.plot(x, daily["a"] / 1e6, color=C_GRAY, lw=1, label="A 연평균")
-    ax.plot(x, daily["b"] / 1e6, color=C_BLUE, lw=1, label="B 최근 4주")
-    ax.plot(x, daily["c"] / 1e6, color=C_ORANGE, lw=1, label="C B+날씨")
-    ax.set(title=f"하루 이용량: 실제 vs 예측 (검증 {ndays}일)", ylabel="하루 이용량 (백만 명)")
-    ax.legend(fontsize=8, ncol=4, loc="lower left")
-    ax.tick_params(axis="x", rotation=30)
-    m = metrics.T
-    m.plot(kind="bar", ax=axes[1], color=[C_GRAY, C_BLUE, C_ORANGE])
-    axes[1].set(title="평균 절대 오차율 (낮을수록 좋음)", ylabel="MAPE (%)")
-    axes[1].tick_params(axis="x", rotation=0, labelsize=8)
-    axes[1].legend(fontsize=8)
-    fig.tight_layout()
+    models = (("실제", "use", "#1b1b1a", 1.6), ("A 연평균", "a", C_GRAY, 1), ("B 최근 4주", "b", C_BLUE, 1), ("C B+날씨", "c", C_ORANGE, 1))
+    for name, col, color, w in models:
+        fig.add_trace(go.Scatter(x=x, y=daily[col] / 1e6, mode="lines", line=dict(color=color, width=w), name=name, legendgroup=name,
+                                 hovertemplate=name + " %{y:.2f}백만<extra></extra>"), 1, 1)
+    for name, _, color, _ in models[1:]:
+        fig.add_trace(go.Bar(x=list(metrics.columns), y=metrics.loc[name], marker_color=color, name=name, legendgroup=name, showlegend=False,
+                             hovertemplate=name + "<br>%{x}: 오차 %{y:.1f}%<extra></extra>"), 1, 2)
+    fig.update_xaxes(hoverformat="%Y-%m-%d", tickformat="%Y.%m", row=1, col=1)
+    fig.update_yaxes(title_text="하루 이용량 (백만 명)", row=1, col=1)
+    fig.update_yaxes(title_text="MAPE (%)", row=1, col=2)
+    fig.update_layout(bargap=.25)
     b, c = metrics.loc["B 최근 4주"], metrics.loc["C B+날씨"]
     desc = _desc(f"날씨 보정(C)을 더해도 하루 오차는 **{b['하루 합계']:.1f}% → {c['하루 합계']:.1f}%**로 거의 그대로입니다.",
                  ("검증 방법", f"{CUT[:4]}년 이전 데이터로 계수를 만들고, 학습에 쓰지 않은 {CUT[:4]}년 1년({ndays}일)을 맞혀 봤습니다. 한 해 전체라 계절이 모두 들어갑니다."),
@@ -357,8 +373,9 @@ def c_backtest():
                          f"비·눈 온 {nwet}개 시간대만 보면 B {b['비·눈 온 시간만']:.1f}% → C {c['비·눈 온 시간만']:.1f}%로 약간 개선됩니다. "
                          "A는 이전 해 평균이라 해마다의 수준 변화까지 오차에 들어갑니다."),
                  ("결론", "날씨 효과는 방향은 일관되지만 평소 변동보다 작아 정확도를 크게 올리진 못합니다. "
-                         "그래서 서비스는 **'평소 대비 몇 % 차이'**로 안내합니다."))
-    return _out(fig, "png"), desc
+                         "그래서 서비스는 **'평소 대비 몇 % 차이'**로 안내합니다."),
+                 ("읽는 법", "선이나 막대에 마우스를 올리면 그날의 값이 뜹니다. 왼쪽 그래프는 끌어서 기간을 확대하고, 두 번 누르면 처음으로 돌아갑니다."))
+    return _plotly(fig, 440, legend_below=True), desc
 
 
 # ---------- 날씨 개요 (B 담당 그래프) ----------
@@ -550,29 +567,50 @@ def _station_spikes() -> pd.DataFrame:
     return s.dropna(subset=["r"])
 
 
+# '평소보다 가장 붐빈 날'에 그 역 근처에서 있었던 일: (짧은 이름, 설명, 종류). 날짜·장소를 언론 보도와 서울시 자료로 확인했다(2026-11 조사).
+EVENTS = {
+    ("월드컵경기장(성산)", "2023-07-30"): ("해외 구단 축구 경기", "맨체스터 시티–아틀레티코 마드리드 친선경기, 서울월드컵경기장 (관중 약 6.4만 명)", "경기·공연"),
+    ("종합운동장", "2023-06-18"): ("브루노 마스 공연", "브루노 마스 내한공연 둘째 날, 잠실 올림픽주경기장 (이틀간 약 10만 명)", "경기·공연"),
+    ("여의나루", "2025-09-27"): ("서울세계불꽃축제", "제21회 서울세계불꽃축제, 여의도 한강공원 (주최 측 추산 100만 명)", "축제"),
+    ("자양(뚝섬한강공원)", "2024-06-01"): ("한강 축제·드론쇼", "뚝섬한강공원 드론 라이트쇼와 한강 축제, 서울국제정원박람회 기간", "축제"),
+    ("태릉입구", "2024-05-19"): ("장미축제", "중랑 서울장미축제 주 행사(5월 18~19일), 중랑장미공원", "축제"),
+    ("한양대", "2023-11-26"): ("대학 논술고사", "한양대 2024학년도 수시 논술고사(11월 25~26일)", "시험"),
+    ("애오개", "2025-01-18"): ("법원 앞 집회", "대통령 구속영장 심사가 열린 날, 서울서부지방법원 일대 집회", "집회"),
+    ("여의도", "2024-12-14"): ("국회 앞 집회", "대통령 탄핵소추안 표결일, 국회 앞 대규모 집회", "집회"),
+    ("신길", "2024-12-14"): ("국회 앞 집회", "대통령 탄핵소추안 표결일, 국회 앞 대규모 집회 (여의도 옆 역)", "집회"),
+    ("한강진", "2025-01-05"): ("관저 앞 집회", "한남동 대통령 관저 앞 집회", "집회"),
+}
+
+
 def c_station_spikes():
     s = _station_spikes()
     s = s[~s["date"].isin(HOLIDAYS.keys())]  # 공휴일 자체의 나들이 증가는 '행사'와 섞이지 않게 뺀다
     top = s.sort_values("r", ascending=False).drop_duplicates(["line", "station"]).head(10)
     many = s[s["r"] >= 3].groupby(["line", "station"]).size().sort_values(ascending=False)
-    fig, ax = plt.subplots(figsize=(9, 4.2))
-    y = np.arange(len(top))[::-1]
-    ax.barh(y, top["r"], color=[LINE_COLORS[ln] for ln in top["line"]], height=.62)
-    ax.set_yticks(y)
-    ax.set_yticklabels([f"{st} ({ln}) {d[5:]}({DOW[w]})" for st, ln, d, w in
-                        zip(top["station"], top["line"], top["date"], top["wd"])])
-    for yy, v in zip(y, top["r"]):
-        ax.text(v + .1, yy, f"{v:.1f}배", va="center", fontsize=8.5)
-    ax.axvline(1, color="#55534e", lw=.8)
-    ax.set(title="평소보다 가장 붐빈 날 — 역별 1위 (같은 요일 대비)", xlabel="같은 요일 앞뒤 4주 중앙값 대비 (배)")
-    ax.set_xlim(0, top["r"].max() * 1.15)
-    first = top.iloc[0]
+    top = top.iloc[::-1]  # 가장 큰 값이 맨 위에 오게
+    ev = [EVENTS.get((st, d), ("행사 확인 안 됨", "그날 그 역 근처의 행사를 찾지 못했습니다")) for st, d in zip(top["station"], top["date"])]
+    fig = go.Figure(go.Bar(
+        x=top["r"], y=[f"{st.split('(')[0]} · {ln}" for st, ln in zip(top["station"], top["line"])], orientation="h",
+        marker_color=[LINE_COLORS[ln] for ln in top["line"]],
+        text=[f"{r:.1f}배 · {e[0]}" for r, e in zip(top["r"], ev)], textposition="outside", cliponaxis=False,
+        customdata=[[st, ln, f"{d}({DOW[w]})", use, base, e[1]] for st, ln, d, w, use, base, e in
+                    zip(top["station"], top["line"], top["date"], top["wd"], top["use"], top["base"], ev)],
+        hovertemplate="<b>%{customdata[0]}</b> · %{customdata[1]}<br>%{customdata[2]}<br>"
+                      "평소 %{customdata[4]:,.0f}명 → 그날 %{customdata[3]:,.0f}명 (%{x:.1f}배)<br>%{customdata[5]}<extra></extra>"))
+    fig.add_vline(x=1, line=dict(color="#55534e", width=1))
+    fig.update_layout(title="평소보다 가장 붐빈 날 — 역별 1위 (같은 요일 대비)", xaxis_title="같은 요일 앞뒤 4주 중앙값 대비 (배)", bargap=.35)
+    fig.update_xaxes(range=[0, top["r"].max() * 1.45])
+    first = top.iloc[-1]
+    kinds = pd.Series([EVENTS[k][2] for k in zip(top["station"], top["date"]) if k in EVENTS]).value_counts()
     desc = _desc("노선 전체로는 날씨 효과가 몇 %지만, 역 하나만 보면 **행사 하나가 이용량을 몇 배로** 바꿉니다.",
-                 ("읽는 법", "역마다 하루 이용량을 같은 요일 앞뒤 4주 중앙값과 비교해, 가장 크게 튄 날을 하나씩 뽑은 상위 10곳입니다(하루 평균 5천 명 이상 역)."),
+                 ("읽는 법", "역마다 하루 이용량을 같은 요일 앞뒤 4주 중앙값과 비교해, 가장 크게 튄 날을 하나씩 뽑은 상위 10곳입니다(하루 평균 5천 명 이상 역). "
+                            "막대에 마우스를 올리면 날짜, 평소와 그날의 이용 인원, 그날의 행사가 뜹니다."),
                  ("수치", f"1위는 {first['station']}({first['line']}) {first['date']}로 **평소의 {first['r']:.1f}배**입니다."
                          + (f" {many.index[0][1]}역은 평소의 3배 이상인 날이 {many.iloc[0]}일입니다." if len(many) else "")),
-                 ("주의", "경기장·한강공원 근처 역이 많아 경기·공연·축제가 원인으로 추정되지만, 날짜별 행사는 따로 확인해야 합니다."))
-    return _out(fig, "png"), desc
+                 ("행사", (f"{len(top)}곳 모두" if kinds.sum() == len(top) else f"{len(top)}곳 가운데 {kinds.sum()}곳은") + " 그날 역 근처에 큰 행사가 있었습니다: "
+                                 + ", ".join(f"**{k} {n}건**" for k, n in kinds.items()) + ".") if len(kinds) else None,
+                 ("주의", "행사는 날짜와 장소를 언론 보도·서울시 자료에서 찾아 붙인 것입니다. 이용량이 늘어난 원인이 그 행사라고 데이터로 증명한 것은 아닙니다."))
+    return _plotly(fig, 440), desc
 
 
 # ---------- 다른 교통수단·역 성격 (mobility.py) ----------
@@ -593,22 +631,23 @@ def c_mode_month():
     m = _trips()
     mon = m.resample("MS").mean()
     idx = mon / mon.mean() * 100
-    fig, ax = plt.subplots(figsize=(9, 3.8))
+    fig = go.Figure()
     for c in idx:
-        ax.plot(idx.index, idx[c], marker="o", ms=3.5, lw=2, color=MODE_COLORS[c], label=c)
-    ax.axhline(100, color=C_GRAY, ls="--", lw=1)
-    ax.set(title="교통수단별 월별 하루 이용 (각 수단의 3년 평균 = 100)", ylabel="이용 지수")
-    ax.legend(ncol=3, fontsize=9, loc="lower center")
+        fig.add_trace(go.Scatter(x=idx.index, y=idx[c], mode="lines+markers", line=dict(color=MODE_COLORS[c], width=2), marker_size=5,
+                                 name=c, hovertemplate=c + " %{y:.0f}<extra></extra>"))
+    fig.add_hline(y=100, line=dict(color=C_GRAY, dash="dash", width=1))
+    fig.update_layout(title="교통수단별 월별 하루 이용 (각 수단의 3년 평균 = 100)", yaxis_title="이용 지수", hovermode="x unified")
+    fig.update_xaxes(hoverformat="%Y년 %m월", tickformat="%Y.%m")
     rng = (idx.max() - idx.min()).round(0)
     avg = m.mean() / 1e4
     bk = idx["따릉이"]
     by_m = bk.groupby(bk.index.month).mean()
     desc = _desc(f"달마다 이용 수준의 차이(최고−최저)가 지하철 {rng['지하철']:.0f}·버스 {rng['버스']:.0f}포인트인데, 따릉이는 **{rng['따릉이']:.0f}포인트**로 약 {rng['따릉이'] / rng[['지하철', '버스']].mean():.0f}배입니다.",
-                 ("읽는 법", "달마다 하루 평균 이동 건수를 각 수단의 3년 평균과 비교한 지수입니다(100 = 평균). 규모가 크게 달라 지수로 맞췄습니다. "
+                 ("읽는 법", "달마다 하루 평균 이동 건수를 각 수단의 3년 평균과 비교한 지수입니다(100 = 평균). 규모가 크게 달라 지수로 맞췄습니다. 선 위에 마우스를 올리면 그 달의 세 수단 값이 함께 뜹니다. "
                             f"하루 평균은 지하철 약 {avg['지하철']:.0f}만, 버스 {avg['버스']:.0f}만(둘 다 승차 기준), 따릉이 {avg['따릉이']:.0f}만 건입니다."),
                  ("수치", f"따릉이는 평균적으로 {by_m.idxmax()}월이 가장 많고({by_m.max():.0f}) {by_m.idxmin()}월이 가장 적습니다({by_m.min():.0f}). 2024년 4월은 지하철 원본 오류로 빠져 있습니다."),
                  ("왜 보나", "날씨를 그대로 맞는 수단일수록 계절을 탑니다. 이 차이가 아래 **질문 ②(교통수단 대비)**의 출발점입니다."))
-    return _out(fig, "html"), desc
+    return _plotly(fig, 380), desc
 
 
 def c_mode_week():
@@ -762,27 +801,26 @@ def c_dumbbell():
 def c_station_map():
     info = mob.station_info().dropna(subset=["lat"])
     info = info[(info["lat"].between(37.4, 37.72)) & (info["lon"].between(126.75, 127.2))]  # 서울 밖 몇 역 제외
-    fig, ax = plt.subplots(figsize=(7.5, 5.6))
+    fig = go.Figure()
     for t in mob.TYPES:
-        s = info[info["type"] == t]
-        ax.scatter(s["lon"], s["lat"], s=np.sqrt(s["wd_daily"]) / 2.2, color=TYPE_COLORS[t], alpha=.75,
-                   edgecolor="white", lw=.5, label=f"{t} ({len(s)})")
-    # 강남 일대는 큰 역이 몰려 있어 상위 N개를 다 적으면 겹친다 → 지역별 대표 역만 적는다
-    for name in ("서울", "강남", "홍대입구", "잠실", "구로디지털단지", "노원", "여의도", "수유", "김포공항"):
-        r = info[info["station"] == name]
-        if len(r):
-            ax.annotate(name, (r["lon"].iat[0], r["lat"].iat[0]), xytext=(5, 4), textcoords="offset points", fontsize=8.5,
-                        path_effects=[pe.withStroke(linewidth=2.5, foreground="white")])
-    ax.set_aspect(1 / np.cos(np.radians(37.55)))
-    ax.set(title="서울 지하철역 성격 지도 (원 크기 = 평일 하루 이용량)", xlabel="경도", ylabel="위도")
-    ax.legend(fontsize=8.5, loc="lower right", markerscale=.6)
+        g = info[info["type"] == t]
+        fig.add_trace(go.Scattermap(
+            lat=g["lat"], lon=g["lon"], mode="markers", name=f"{t} ({len(g)})",
+            marker=dict(size=g["wd_daily"], sizemode="area", sizeref=info["wd_daily"].max() / 26 ** 2, sizemin=4,
+                        color=TYPE_COLORS[t], opacity=.8),
+            customdata=np.c_[g["station"], g["wd_daily"] / 1e4,  # 주말 자료가 없는 역이 몇 곳 있다
+                             [f"주말은 평일의 {r:.0%}" if pd.notna(r) else "주말 자료 없음" for r in g["weekend_ratio"]]],
+            hovertemplate="<b>%{customdata[0]}</b> · " + t + "<br>평일 하루 %{customdata[1]:.1f}만 명<br>%{customdata[2]}<extra></extra>"))
+    fig.update_layout(title="서울 지하철역 성격 지도 (원 크기 = 평일 하루 이용량)",
+                      map=dict(style="open-street-map", center=dict(lat=37.555, lon=126.985), zoom=9.9))
     cnt = info["type"].value_counts()
     desc = _desc("평일 아침 승하차 방향과 주말 이용 비율만으로 역을 나누면, **업무지구는 도심·강남에, 주거지는 외곽에** 모입니다.",
-                 ("읽는 법", "점 하나가 역 하나이고 위치는 실제 좌표(서울시 역사마스터 정보)입니다. 원이 클수록 평일 이용량이 많습니다."),
+                 ("읽는 법", "점 하나가 역 하나이고 실제 지도 위의 제 위치(서울시 역사마스터 정보)에 찍었습니다. 원이 클수록 평일 이용량이 많습니다. "
+                            "원에 마우스를 올리면 역 이름과 이용량이 뜨고, 지도를 끌거나 확대할 수 있습니다. 범례의 이름을 누르면 그 종류만 켜고 끕니다."),
                  ("분류 기준", "평일 7~9시 하차가 승차의 2배 이상이면 **업무지구**(일하러 오는 역), 승차가 하차의 2배 이상이면 **주거지**(집에서 나가는 역), "
                               "주말 하루 이용이 평일의 75% 이상이면 **여가·상업**, 나머지는 혼합입니다."),
                  ("수치", ", ".join(f"{t} {cnt.get(t, 0)}곳" for t in mob.TYPES) + ". 이름은 데이터로 붙인 것이라 실제 용도와 다를 수 있습니다."))
-    return _out(fig, "png"), desc
+    return _plotly(fig, 560), desc
 
 
 def c_type_rain():
@@ -861,7 +899,8 @@ def c_transfer():
 # ---------- 조립 ----------
 def _card(cid, title, fn, *args):
     html, desc = fn(*args)
-    return {"id": cid, "title": title, "html": html, "desc": _render_desc(desc)}
+    return {"id": cid, "title": title, "html": html, "desc": _render_desc(desc),
+            "filtered": bool(args)}  # 호선·요일 인자를 받는 그래프만 선택에 따라 바뀐다
 
 
 def _md(text: str) -> Markup:

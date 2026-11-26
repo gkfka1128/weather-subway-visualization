@@ -1,10 +1,12 @@
 // 정적 사이트(GitHub Pages)용 예측: app.py의 predict()와 service/serve.py를 브라우저로 옮긴 것.
 // model.json(평소 이용량·날씨 보정 계수, build_static.py가 생성) × Open-Meteo 예보(브라우저에서 직접 호출).
+// 기상청 API는 인증키를 숨길 서버가 필요해 Flask·Docker 판(app.py)에서만 쓴다. 여기는 키가 필요 없는 Open-Meteo.
 "use strict";
 
 const KST = "Asia/Seoul";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780" +
-  "&forecast_days=7&hourly=temperature_2m,precipitation,snowfall,cloud_cover&timezone=Asia%2FSeoul";
+  "&forecast_days=7&wind_speed_unit=ms&hourly=temperature_2m,precipitation,snowfall,cloud_cover," +
+  "precipitation_probability,relative_humidity_2m,wind_speed_10m&timezone=Asia%2FSeoul";
 const LEVELS = [[0.75, "매우 많음", "lv4"], [0.5, "많음", "lv3"], [0.3, "보통", "lv2"], [0, "한산", "lv1"]];
 
 // ---------- 데이터 ----------
@@ -16,7 +18,7 @@ async function loadModel() {
 
 async function loadForecast() {
   try {  // 30분 캐시 (저장소가 막혀 있어도 동작)
-    const c = JSON.parse(sessionStorage.getItem("fc2") || "null");
+    const c = JSON.parse(sessionStorage.getItem("fc3") || "null");
     if (c && Date.now() - c.at < 1800e3) return c.rows;
   } catch (e) { /* 무시 */ }
   const r = await fetch(FORECAST_URL);
@@ -25,8 +27,9 @@ async function loadForecast() {
   const rows = h.time.map((t, i) => ({
     date: t.slice(0, 10), hour: +t.slice(11, 13),
     temp: h.temperature_2m[i], rain: h.precipitation[i], snow: h.snowfall[i], cloud: h.cloud_cover[i],
+    pop: h.precipitation_probability?.[i], hum: h.relative_humidity_2m?.[i], wind: h.wind_speed_10m?.[i],
   }));
-  try { sessionStorage.setItem("fc2", JSON.stringify({ at: Date.now(), rows })); } catch (e) { /* 무시 */ }
+  try { sessionStorage.setItem("fc3", JSON.stringify({ at: Date.now(), rows })); } catch (e) { /* 무시 */ }
   return rows;
 }
 
@@ -107,10 +110,20 @@ async function dashToday(line) {
     const wsky = snow > 0 ? `눈 ${snow.toFixed(1)}cm` : rain > 0.1 ? `비 ${rain.toFixed(1)}mm` : "강수 없음";
     const hrs = [6, 9, 12, 15, 18, 21].map(h => p.rows.find(r => r.hour === h)).filter(Boolean)
       .map(r => `<li><span>${r.hour}시</span>${ico(skyIcon(r.rain, r.snow, r.cloud))}<b>${Math.round(r.temp)}°</b><i>${r.snow > 0 ? r.snow.toFixed(1) + "cm" : r.rain > 0.1 ? r.rain.toFixed(1) + "mm" : "–"}</i></li>`).join("");
+    // 예보에 빈 값(null)인 시간이 있으면 빼고 계산, 하나도 없으면 "–"
+    const stat = (k, how, dp) => {
+      const v = p.rows.map(r => r[k]).filter(x => typeof x === "number");
+      if (!v.length) return "–";
+      return (how === "max" ? "최대 " + Math.max(...v) : "평균 " + v.reduce((a, b) => a + b, 0) / v.length).replace(/[\d.]+$/, n => (+n).toFixed(dp));
+    };
     document.getElementById("today-wx").innerHTML =
       `<div class="wx-now">${ico(skyIcon(rain, snow, cloud), "big")}<div>` +
       `<div class="wx-temp">${Math.round(Math.min(...temps))}~${Math.round(Math.max(...temps))}℃</div>` +
-      `<div class="wx-sky">${wsky} · 날씨 보정 ${signed(p.pct)}%</div></div></div><p class="wx-hint">3시간 간격 예보 · 기온 / 강수량</p><ol class="wx-hours">${hrs}</ol>`;
+      `<div class="wx-sky">${wsky} · 날씨 보정 ${signed(p.pct)}%</div></div></div>` +
+      `<dl class="wx-extra"><div><dt>강수확률</dt><dd>${stat("pop", "max", 0)}%</dd></div>` +
+      `<div><dt>습도</dt><dd>${stat("hum", "mean", 0)}%</dd></div>` +
+      `<div><dt>바람</dt><dd>${stat("wind", "max", 1)}m/s</dd></div></dl>` +
+      `<p class="wx-src">Open-Meteo 예보</p><p class="wx-hint">3시간 간격 예보 · 기온 / 강수량</p><ol class="wx-hours">${hrs}</ol>`;
 
     // 호선별 예상 하루 이용량
     const ls = M.lines.map(ln => {

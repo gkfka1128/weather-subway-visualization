@@ -5,3 +5,4 @@ report/
 *.pdf
 data/raw/
 site/
+.env
